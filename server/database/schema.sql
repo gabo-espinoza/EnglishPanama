@@ -30,7 +30,6 @@ CREATE TABLE teachers (
 CREATE TABLE students (
     user_id    INT UNSIGNED PRIMARY KEY,
     teacher_id INT UNSIGNED NOT NULL,
-    alias      VARCHAR(50) NOT NULL,
     avatar     VARCHAR(50) NOT NULL DEFAULT 'default',
     xp         INT UNSIGNED NOT NULL DEFAULT 0,
     CONSTRAINT fk_students_user
