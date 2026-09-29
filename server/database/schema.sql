@@ -76,7 +76,7 @@ CREATE TABLE questions (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================================
--- Intentos y resultados (el nivel y el reporte docente salen de acá)
+-- Intentos y resultados (el nivel y el reporte docente salen de aquí)
 -- ============================================================
 
 CREATE TABLE attempts (

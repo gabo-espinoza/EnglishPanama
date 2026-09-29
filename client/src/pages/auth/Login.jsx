@@ -43,7 +43,7 @@ export default function Login() {
                 </button>
             </form>
             <p>
-                ¿No tenés cuenta? <Link to="/register">Registrate acá</Link>
+                ¿No tienes cuenta? <Link to="/register">Regístrate aquí</Link>
             </p>
         </div>
     );

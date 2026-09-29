@@ -41,7 +41,7 @@ export default function Register() {
                 <h1>¡Listo!</h1>
                 <p>Tu código de clase es:</p>
                 <p><strong>{teacherClassCode}</strong></p>
-                <p>Compartíselo a tus estudiantes para que se registren con vos.</p>
+                <p>Compártelo con tus estudiantes para que se registren contigo.</p>
                 <Link to="/teacher">Ir a mi panel</Link>
             </div>
         );
@@ -86,7 +86,7 @@ export default function Register() {
                 </button>
             </form>
             <p>
-                ¿Ya tenés cuenta? <Link to="/">Iniciar sesión</Link>
+                ¿Ya tienes cuenta? <Link to="/">Iniciar sesión</Link>
             </p>
         </div>
     );

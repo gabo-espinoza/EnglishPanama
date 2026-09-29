@@ -1,5 +1,5 @@
 // Middleware de errores centralizado. Cualquier `next(err)` en un controlador
-// termina acá, en vez de que cada ruta arme su propio try/catch con formato distinto.
+// termina aquí, en vez de que cada ruta arme su propio try/catch con formato distinto.
 function errorHandler(err, req, res, next) {
     console.error(err);
 
