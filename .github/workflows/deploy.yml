@@ -1,0 +1,65 @@
+name: Deploy to production
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # El frontend se compila ACÁ, en el runner de GitHub — nunca en la VM chica.
+      - name: Build client
+        working-directory: client
+        run: |
+          npm ci
+          npm run build
+
+      # Dependencias de producción del server (sin devDependencies), para copiar
+      # un node_modules ya listo en vez de correr npm install en la VM.
+      - name: Install server production deps
+        working-directory: server
+        run: npm ci --omit=dev
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy client build
+        run: |
+          rsync -avz --delete \
+            -e "ssh -i ~/.ssh/deploy_key" \
+            client/dist/ \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/var/www/englishpanama/client/"
+
+      - name: Deploy server code (sin tocar .env)
+        run: |
+          rsync -avz --delete \
+            --exclude='.env' \
+            --exclude='node_modules' \
+            -e "ssh -i ~/.ssh/deploy_key" \
+            server/ \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/var/www/englishpanama/api/"
+
+      - name: Deploy server node_modules
+        run: |
+          rsync -avz --delete \
+            -e "ssh -i ~/.ssh/deploy_key" \
+            server/node_modules/ \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/var/www/englishpanama/api/node_modules/"
+
+      - name: Reiniciar API con PM2
+        run: |
+          ssh -i ~/.ssh/deploy_key "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "pm2 restart api || pm2 start /var/www/englishpanama/api/src/server.js --name api && pm2 save"
