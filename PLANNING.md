@@ -69,3 +69,5 @@ Si el tiempo aprieta, se recorta en este orden — nunca el núcleo:
 - PR obligatorio, revisión de Gabriel (o revisor suplente) antes de mergear.
 - Commits en formato [Conventional Commits](https://www.conventionalcommits.org/).
 - Contenido (preguntas, textos) va como JSON en el repo — no requiere tocar código de la app.
+- Guía completa, paso a paso, con el setup local de cada integrante: [docs/github-workflow.md](docs/github-workflow.md).
+- Contrato de la API (endpoints, formatos de request/response): [docs/api.md](docs/api.md).
