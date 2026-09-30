@@ -36,9 +36,9 @@ content/reading-passages-week4
 
 - Una rama por tarea/issue. Si el issue tiene número, se puede agregar al final: `feat/xp-service-12`.
 - Rama corta y descriptiva: 2 a 5 palabras. `feat/dashboard` es mejor que `feat/panel-docente-con-progreso-y-temas-dificiles`.
-- Sale siempre de `main` actualizada.
+- **Sale siempre de `develop` actualizada, no de `main`.**
 - Se borra al mergear el PR (no se acumulan ramas viejas).
-- `main` está protegida: todo entra por Pull Request con al menos una revisión aprobada.
+- **El Pull Request apunta a `develop`** (es la rama por defecto del repositorio). Gabriel consolida `develop` en `main` una vez verificada la integridad de los cambios — ese merge a `main` es lo que dispara el despliegue automático a producción.
 
 ## Commits
 

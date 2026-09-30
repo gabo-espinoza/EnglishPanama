@@ -145,7 +145,7 @@ Avanza el offset del reto diario en `app_settings`, para la presentación.
 
 ## Convenciones para agregar un endpoint nuevo
 
-1. Actualizá este archivo **antes** de escribir el código — así el resto del equipo sabe qué esperar sin leer tu implementación.
-2. Seguí el patrón de capas: ruta → controlador → servicio → acceso a datos (ver `server/README.md`).
+1. Actualiza este archivo **antes** de escribir el código — así el resto del equipo sabe qué esperar sin leer la implementación.
+2. Sigue el patrón de capas: ruta → controlador → servicio → acceso a datos (ver `server/README.md`).
 3. Nunca expongas `correct_answer`, `password_hash`, ni datos personales de otros estudiantes.
 4. Todo error de validación usa el formato `{ "error": "..." }` con el código HTTP correcto, no 500 genérico.
