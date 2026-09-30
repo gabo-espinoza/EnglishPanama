@@ -3,6 +3,9 @@ name: Deploy to production
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
 
 jobs:
   deploy:
