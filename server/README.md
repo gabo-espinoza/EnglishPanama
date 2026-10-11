@@ -3,8 +3,8 @@
 Servidor Express + MySQL del proyecto. Cubre dos mundos con controles separados:
 
 - **App de estudiantes y docentes**: dos roles (`student`, `teacher`), token de 2 horas.
-- **Personal de gestion (Fase A)**: 6 roles repartidos por area, login con MFA (TOTP),
-  token de 20 minutos y auditoria en una base aparte.
+- **Personal de gestion (Fase A)**: 8 roles repartidos en 7 departamentos (areas), login con
+  MFA (TOTP), token de 20 minutos y auditoria en una base aparte.
 
 ## Arquitectura (capas)
 
@@ -18,7 +18,7 @@ utils/        Utilidades compartidas (AppError, totp, mfaCrypto)
 ```
 
 Regla de oro: **una ruta nunca habla directo con la base**. El flujo es siempre
-`ruta → controlador → servicio → pool`. Toda consulta usa sentencias
+`ruta -> controlador -> servicio -> pool`. Toda consulta usa sentencias
 parametrizadas (`?`), nunca concatenacion de strings.
 
 ## Como correrlo localmente
@@ -31,6 +31,7 @@ mysql -u root -p < database/schema.sql    # app de estudiantes/docentes
 mysql -u root -p < database/staff.sql     # cuentas de gestion
 mysql -u root -p < database/audit.sql     # base de auditoria
 node scripts/create-staff.js ana.accesos access_manager   # imprime el secreto TOTP
+node scripts/seed-demo-staff.js                           # 24 cuentas demo (3 por rol)
 npm run dev              # http://localhost:3000/api/health
 ```
 

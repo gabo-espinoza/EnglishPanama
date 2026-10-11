@@ -22,7 +22,7 @@ Authorization: Bearer <token>
 | XP por nivel | 100 |
 | Nivel a partir de XP | `nivel = floor(xp / 100) + 1` |
 
-Ejemplo: 8 aciertos → 40 XP; si el estudiante tenia 100 XP, queda con 140 XP y sube a nivel 2.
+Ejemplo: 8 aciertos -> 40 XP; si el estudiante tenia 100 XP, queda con 140 XP y sube a nivel 2.
 
 Las respuestas que otorgan XP (intento de actividad y reto diario) y el ranking
 incluyen ademas los datos para pintar la **barra de progreso**: `xpIntoLevel`
@@ -305,12 +305,14 @@ El middleware `requireStaff` revalida la cuenta contra la base en cada peticion.
 
 | Rol (`staff_role`) | Area | Fase | Puede |
 |---|---|---|---|
-| `access_manager` | `access` | A | Listar cuentas, crear docentes, solicitar suspender/activar, metricas anonimas |
+| `access_manager` | `access` | A | Listar cuentas, crear docentes y solicitar suspender/activar |
 | `auditor` | `audit` | A | Ver y verificar la auditoria, aprobar/rechazar solicitudes |
-| `content_manager` | `content` | B | Crear y estructurar contenido |
-| `content_reviewer` | `content` | B | Aprobar o rechazar contenido |
-| `game_manager` | `game` | C | Reglas del juego, alias y moderacion |
-| `support` | `support` | C | Atender reportes de usuarios |
+| `analyst` | `analytics` | A | Ver metricas anonimas (solo lectura) |
+| `content_manager` | `content` | B | Crear y estructurar contenido (queda pendiente de revision) |
+| `content_reviewer` | `content` | B | Revisar y aprobar/rechazar el contenido |
+| `game_manager` | `game` | C | Administrar reglas del juego y catalogo de alias |
+| `moderator` | `moderation` | C | Atender reportes de la comunidad y aplicar sanciones |
+| `support` | `support` | C | Atender reportes y consultas de los usuarios |
 
 > El gestor de base de datos y el gestor de la aplicacion **no son cuentas de la app**:
 > son usuarios del sistema operativo de las VM (se documentan en la fase de operaciones).
@@ -358,10 +360,11 @@ transaccion. `409` si la solicitud ya fue resuelta.
 Body `{ "username", "displayName" }`. Crea la cuenta de docente y devuelve una
 `temporaryPassword` (se muestra una sola vez) y el `classCode`.
 
-### `GET /staff/analytics/dashboard` - `access_manager`
+### `GET /staff/analytics/dashboard` - solo `analyst`
 
 Metricas agregadas y anonimas (totales): estudiantes, docentes, actividades, preguntas,
-intentos y personal por rol. Nunca alias ni nombres.
+intentos y personal por rol. Nunca alias ni nombres. Este endpoint pertenece al departamento
+de Datos y Reportes (`analytics`); el `access_manager` ya **no** tiene acceso a el (`403`).
 
 ### `GET /staff/audit` - `auditor`
 
@@ -380,7 +383,7 @@ Recorre la cadena de hashes del registro:
 ## Convenciones para agregar un endpoint nuevo
 
 1. Actualiza este archivo **antes** de escribir el codigo - asi el resto del equipo sabe que esperar sin leer la implementacion.
-2. Sigue el patron de capas: ruta → controlador → servicio → acceso a datos (ver `server/README.md`).
+2. Sigue el patron de capas: ruta -> controlador -> servicio -> acceso a datos (ver `server/README.md`).
 3. Nunca expongas `correct_answer`, `password_hash`, ni datos personales de otros estudiantes.
 4. Toda consulta usa sentencias parametrizadas (`?`), nunca concatenacion de strings.
 5. Todo error de validacion usa el formato `{ "error": "..." }` con el codigo HTTP correcto, no 500 generico.

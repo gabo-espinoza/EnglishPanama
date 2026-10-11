@@ -15,7 +15,7 @@ middleware/   Auth (JWT + roles), errores, rate limit
 utils/        Utilidades compartidas (AppError)
 ```
 
-Regla: una ruta nunca habla directo con la base. Ruta → controlador → servicio → `pool`.
+Regla: una ruta nunca habla directo con la base. Ruta -> controlador -> servicio -> `pool`.
 
 ## Archivos de esta entrega (rama `feat/backend-mvp`)
 
@@ -69,7 +69,7 @@ Regla: una ruta nunca habla directo con la base. Ruta → controlador → servic
 
 | Archivo | Rol |
 |---|---|
-| `src/config/staffRoles.js` | Define los 6 roles de gestion, sus areas y utilidades de permisos. |
+| `src/config/staffRoles.js` | Define los 8 roles de gestion, sus areas y utilidades de permisos. |
 | `src/config/auditDb.js` | Pool de la base de auditoria separada (con reserva a la base principal). |
 | `src/utils/totp.js` | TOTP propio (Node `crypto`, sin dependencias): generar secreto y validar codigos. |
 | `src/utils/mfaCrypto.js` | Cifra/descifra el secreto TOTP con AES-256-GCM (`STAFF_MFA_KEY`). |
@@ -85,6 +85,7 @@ Regla: una ruta nunca habla directo con la base. Ruta → controlador → servic
 | `database/staff.sql` | Tablas `staff_accounts` y `staff_change_requests`. |
 | `database/audit.sql` | Base y tabla `audit_log` (solo anexar). |
 | `scripts/create-staff.js` | Crea una cuenta de gestion (imprime el secreto TOTP una vez). |
+| `scripts/seed-demo-staff.js` | Siembra las 24 cuentas de demostracion (3 por rol, 8 roles) de forma idempotente. |
 | `scripts/list-staff.js` | Lista las cuentas de gestion (sin secretos). |
 | `scripts/reset-staff-mfa.js` | Regenera el MFA de una cuenta de gestion. |
 | `tests/staff.test.js` | Pruebas de login, permisos, separacion de funciones y auditoria. |
@@ -104,6 +105,7 @@ mysql -u root -p < database/schema.sql     # app de estudiantes/docentes
 mysql -u root -p < database/staff.sql      # cuentas de gestion
 mysql -u root -p < database/audit.sql      # base de auditoria (englishpanama_audit)
 node scripts/create-staff.js ana.accesos access_manager   # imprime el secreto TOTP
+node scripts/seed-demo-staff.js                           # 24 cuentas demo (3 por rol)
 ```
 
 Arrancar:

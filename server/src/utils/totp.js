@@ -67,7 +67,7 @@ function generateToken(secret, timestamp = Date.now()) {
     return hotp(secret, counterFor(timestamp));
 }
 
-// Acepta una ventana de ±1 paso (30 s) por desfase de reloj.
+// Acepta una ventana de +/-1 paso (30 s) por desfase de reloj.
 function verifyToken(secret, token, window = 1, timestamp = Date.now()) {
     const candidate = String(token || '').trim();
     if (!new RegExp(`^\\d{${DIGITS}}$`).test(candidate)) return false;

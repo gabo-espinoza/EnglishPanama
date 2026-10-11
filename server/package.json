@@ -1,7 +1,7 @@
 {
   "name": "english-panama-server",
   "version": "0.1.0",
-  "description": "API REST de English Panamá",
+  "description": "API REST de English Panama",
   "main": "src/server.js",
   "type": "commonjs",
   "scripts": {
