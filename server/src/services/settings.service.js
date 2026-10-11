@@ -1,6 +1,6 @@
 const pool = require('../config/db');
 
-// Clave en app_settings que usa el modo demo para desplazar el "día" del reto diario.
+// Clave en app_settings que usa el modo demo para desplazar el "dia" del reto diario.
 const DEMO_OFFSET_KEY = 'demo_day_offset';
 
 async function getSetting(key, fallback = null) {

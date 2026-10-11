@@ -2,7 +2,7 @@ const pool = require('../config/db');
 const { levelForXp } = require('./xp.service');
 
 // Panel docente: lista de estudiantes de la clase del docente autenticado,
-// con nivel, XP, actividades completadas y promedio (%) por módulo.
+// con nivel, XP, actividades completadas y promedio (%) por modulo.
 async function getStudents(teacherId) {
     const [students] = await pool.query(
         `SELECT s.user_id AS userId, u.username AS alias, s.avatar, s.xp
@@ -13,7 +13,7 @@ async function getStudents(teacherId) {
         [teacherId]
     );
 
-    // Todos los intentos de la clase, ya con el módulo y el total de preguntas
+    // Todos los intentos de la clase, ya con el modulo y el total de preguntas
     // de cada actividad (para poder sacar el porcentaje de acierto).
     const [attemptRows] = await pool.query(
         `SELECT att.student_id AS studentId,

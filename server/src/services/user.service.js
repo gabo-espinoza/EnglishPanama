@@ -3,7 +3,7 @@ const AppError = require('../utils/AppError');
 const { progressForXp } = require('./xp.service');
 
 // El avatar es un identificador corto (ej. "default", "zorro-1"); no se guarda
-// HTML ni rutas, para evitar inyección en el cliente.
+// HTML ni rutas, para evitar inyeccion en el cliente.
 const AVATAR_PATTERN = /^[a-z0-9_-]{1,50}$/;
 const MAX_DISPLAY_NAME_LENGTH = 100;
 
@@ -67,11 +67,11 @@ async function updateProfile(userId, role, data) {
 
     if (role === 'student') {
         if (body.avatar === undefined) {
-            throw new AppError('No hay campos válidos para actualizar (avatar).');
+            throw new AppError('No hay campos validos para actualizar (avatar).');
         }
         const avatar = String(body.avatar).trim().toLowerCase();
         if (!AVATAR_PATTERN.test(avatar)) {
-            throw new AppError('El avatar debe ser un identificador corto (letras, números, guion o guion bajo).');
+            throw new AppError('El avatar debe ser un identificador corto (letras, numeros, guion o guion bajo).');
         }
         const [result] = await pool.query(
             'UPDATE students SET avatar = ? WHERE user_id = ?',
@@ -82,7 +82,7 @@ async function updateProfile(userId, role, data) {
         }
     } else if (role === 'teacher') {
         if (body.displayName === undefined) {
-            throw new AppError('No hay campos válidos para actualizar (displayName).');
+            throw new AppError('No hay campos validos para actualizar (displayName).');
         }
         const displayName = String(body.displayName).trim();
         if (!displayName) {

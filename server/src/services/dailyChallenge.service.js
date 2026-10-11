@@ -54,7 +54,7 @@ async function getDailyChallenge(studentId) {
         [challenge.questionId]
     );
     if (questionRows.length === 0) {
-        throw new AppError('El reto de hoy no tiene una pregunta válida.', 409);
+        throw new AppError('El reto de hoy no tiene una pregunta valida.', 409);
     }
 
     const [completionRows] = await pool.query(

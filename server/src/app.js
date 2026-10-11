@@ -7,18 +7,18 @@ const { apiLimiter } = require('./middleware/rateLimiter');
 
 const app = express();
 
-// Detrás de un proxy (Nginx en producción) el rate limit necesita la IP real.
+// Detras de un proxy (Nginx en produccion) el rate limit necesita la IP real.
 // Se activa solo con TRUST_PROXY=true para no confiar en cabeceras falsificadas en local.
 if (process.env.TRUST_PROXY === 'true') {
     app.set('trust proxy', 1);
 }
 
-// Cabeceras de seguridad (helmet). Se permite compartir recursos entre orígenes
+// Cabeceras de seguridad (helmet). Se permite compartir recursos entre origenes
 // porque el frontend vive en otro dominio.
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
 // CORS: si se define CORS_ORIGIN (lista separada por comas) solo se aceptan esos
-// orígenes; si no, se permite cualquiera (útil en desarrollo).
+// origenes; si no, se permite cualquiera (util en desarrollo).
 const allowedOrigins = (process.env.CORS_ORIGIN || '')
     .split(',')
     .map((origin) => origin.trim())
@@ -29,10 +29,10 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Límite de tamaño del body: las respuestas de un intento son pequeñas.
+// Limite de tamano del body: las respuestas de un intento son pequenas.
 app.use(express.json({ limit: '100kb' }));
 
-// Límite general de peticiones para toda la API.
+// Limite general de peticiones para toda la API.
 app.use('/api', apiLimiter, routes);
 
 app.use(errorHandler);

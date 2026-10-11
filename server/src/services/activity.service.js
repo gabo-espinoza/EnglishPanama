@@ -5,8 +5,8 @@ const { xpForScore, progressForXp } = require('./xp.service');
 const VALID_MODULES = ['vocabulary', 'grammar', 'reading'];
 
 // Compara la respuesta del estudiante con la guardada, sin importar el formato
-// (string, número o arreglo). La respuesta correcta vive SOLO en el servidor:
-// nunca se envía al cliente antes de que responda.
+// (string, numero o arreglo). La respuesta correcta vive SOLO en el servidor:
+// nunca se envia al cliente antes de que responda.
 function normalizeAnswer(value) {
     if (value === null || value === undefined) return '';
     if (Array.isArray(value)) return value.map(normalizeAnswer).join('|');
@@ -21,12 +21,12 @@ function normalizeAnswer(value) {
 
 async function listActivitiesByModule(moduleSlug) {
     if (!VALID_MODULES.includes(moduleSlug)) {
-        throw new AppError('Módulo inválido. Usa vocabulary, grammar o reading.', 404);
+        throw new AppError('Modulo invalido. Usa vocabulary, grammar o reading.', 404);
     }
 
     const [moduleRows] = await pool.query('SELECT id FROM modules WHERE slug = ?', [moduleSlug]);
     if (moduleRows.length === 0) {
-        throw new AppError('El módulo no existe.', 404);
+        throw new AppError('El modulo no existe.', 404);
     }
 
     const [rows] = await pool.query(
@@ -46,7 +46,7 @@ async function getActivityQuestions(activityId) {
         throw new AppError('La actividad no existe.', 404);
     }
 
-    // Solo columnas públicas: correct_answer nunca sale de aquí.
+    // Solo columnas publicas: correct_answer nunca sale de aqui.
     const [questionRows] = await pool.query(
         'SELECT id, prompt, options FROM questions WHERE activity_id = ? ORDER BY id',
         [activityId]
@@ -77,7 +77,7 @@ async function submitAttempt(studentId, activityId, answers) {
         throw new AppError('La actividad no tiene preguntas configuradas.', 409);
     }
 
-    // Indexa lo que envió el estudiante por id de pregunta.
+    // Indexa lo que envio el estudiante por id de pregunta.
     const answerByQuestion = new Map();
     for (const item of answers) {
         if (item && item.questionId !== undefined) {
@@ -85,7 +85,7 @@ async function submitAttempt(studentId, activityId, answers) {
         }
     }
 
-    // La corrección se hace siempre aquí, en el servidor.
+    // La correccion se hace siempre aqui, en el servidor.
     const results = questionRows.map((question) => ({
         questionId: question.id,
         isCorrect:

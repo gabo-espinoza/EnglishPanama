@@ -5,5 +5,5 @@ const app = require('./app');
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-    console.log(`English Panamá API escuchando en el puerto ${PORT}`);
+    console.log(`English Panama API escuchando en el puerto ${PORT}`);
 });
