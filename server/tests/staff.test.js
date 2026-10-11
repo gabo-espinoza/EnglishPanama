@@ -24,6 +24,7 @@ const suffix = String(Date.now()).slice(-7);
 const created = [];
 let access = null;   // access_manager
 let auditor = null;  // auditor
+let analyst = null;  // analyst
 let victim = null;   // support (se suspende)
 
 test.before(async () => {
@@ -53,6 +54,7 @@ test.before(async () => {
 
     access = await createAccount('acc', 'access_manager');
     auditor = await createAccount('aud', 'auditor');
+    analyst = await createAccount('anl', 'analyst');
     victim = await createAccount('sup', 'support');
     ready = true;
 });
@@ -119,6 +121,20 @@ test('un access_manager no puede leer la auditoria (403)', async (t) => {
     if (!ready) { t.skip('sin MySQL o claves de gestion'); return; }
     const res = await call('GET', '/staff/audit', { token: access.token });
     assert.strictEqual(res.status, 403);
+});
+
+test('las metricas son solo del analista: access_manager 403, analyst 200', async (t) => {
+    if (!ready) { t.skip('sin MySQL o claves de gestion'); return; }
+
+    const asAccess = await call('GET', '/staff/analytics/dashboard', { token: access.token });
+    assert.strictEqual(asAccess.status, 403);
+
+    const res = await login(analyst, code(analyst));
+    assert.strictEqual(res.status, 200);
+    analyst.token = (await res.json()).token;
+
+    const asAnalyst = await call('GET', '/staff/analytics/dashboard', { token: analyst.token });
+    assert.strictEqual(asAnalyst.status, 200);
 });
 
 test('el auditor verifica la cadena de auditoria', async (t) => {

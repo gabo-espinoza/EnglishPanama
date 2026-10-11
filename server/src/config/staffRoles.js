@@ -12,7 +12,9 @@ const STAFF_ROLE_AREA = {
     content_manager: 'content',
     content_reviewer: 'content',
     game_manager: 'game',
-    support: 'support'
+    support: 'support',
+    analyst: 'analytics',
+    moderator: 'moderation'
 };
 
 const STAFF_ROLES = Object.keys(STAFF_ROLE_AREA);
