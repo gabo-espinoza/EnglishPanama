@@ -1,7 +1,7 @@
 const mysql = require('mysql2/promise');
 
-// Pool de conexiones: cada request pide una conexión prestada y la devuelve,
-// en vez de abrir una conexión nueva por request.
+// Pool de conexiones: cada request pide una conexion prestada y la devuelve,
+// en vez de abrir una conexion nueva por request.
 const pool = mysql.createPool({
     host: process.env.DB_HOST,
     user: process.env.DB_USER,

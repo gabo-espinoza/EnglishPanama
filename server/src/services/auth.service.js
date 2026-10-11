@@ -6,6 +6,12 @@ const SALT_ROUNDS = 10;
 const CLASS_CODE_LENGTH = 6;
 const CLASS_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sin 0/O/1/I, para que no se confundan al escribirlo a mano
 
+// Validacion de entrada: el nombre de usuario solo admite caracteres seguros
+// (letras, numeros, punto, guion y guion bajo) y un largo acotado.
+const USERNAME_PATTERN = /^[A-Za-z0-9_.-]{3,30}$/;
+const MAX_PASSWORD_LENGTH = 72; // bcrypt solo usa los primeros 72 bytes
+const MAX_DISPLAY_NAME_LENGTH = 100;
+
 function generateClassCode() {
     let code = '';
     for (let i = 0; i < CLASS_CODE_LENGTH; i++) {
@@ -14,8 +20,16 @@ function generateClassCode() {
     return code;
 }
 
+// Sesion de usuario de plataforma (estudiante/docente): 2 horas.
+// Las cuentas de gestion tienen su propia sesion corta (20 min) en staffAuth.service.
+const PLATFORM_SESSION = '2h';
+
 function signToken(user) {
-    return jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    return jwt.sign(
+        { id: user.id, role: user.role, tv: user.token_version || 0 },
+        process.env.JWT_SECRET,
+        { expiresIn: PLATFORM_SESSION }
+    );
 }
 
 class AuthError extends Error {
@@ -25,13 +39,38 @@ class AuthError extends Error {
     }
 }
 
-async function registerTeacher({ username, password, displayName }) {
-    if (!username || !password || !displayName) {
-        throw new AuthError('Faltan datos: username, password y displayName son obligatorios.');
+function validateUsername(username) {
+    if (!username) {
+        throw new AuthError('El nombre de usuario es obligatorio.');
+    }
+    if (!USERNAME_PATTERN.test(username)) {
+        throw new AuthError(
+            'El nombre de usuario debe tener entre 3 y 30 caracteres y solo puede incluir letras, numeros, punto, guion o guion bajo.'
+        );
+    }
+}
+
+function validatePassword(password) {
+    if (!password) {
+        throw new AuthError('La contrasena es obligatoria.');
     }
     if (password.length < 4) {
-        throw new AuthError('La contraseña debe tener al menos 4 caracteres.');
+        throw new AuthError('La contrasena debe tener al menos 4 caracteres.');
     }
+    if (password.length > MAX_PASSWORD_LENGTH) {
+        throw new AuthError('La contrasena es demasiado larga.');
+    }
+}
+
+async function registerTeacher({ username, password, displayName }) {
+    if (!displayName) {
+        throw new AuthError('Faltan datos: displayName es obligatorio.');
+    }
+    if (displayName.length > MAX_DISPLAY_NAME_LENGTH) {
+        throw new AuthError('El nombre para mostrar es demasiado largo.');
+    }
+    validateUsername(username);
+    validatePassword(password);
 
     const connection = await pool.getConnection();
     try {
@@ -48,12 +87,12 @@ async function registerTeacher({ username, password, displayName }) {
             userId = userResult.insertId;
         } catch (err) {
             if (err.code === 'ER_DUP_ENTRY') {
-                throw new AuthError('Ese nombre de usuario ya está en uso.', 409);
+                throw new AuthError('Ese nombre de usuario ya esta en uso.', 409);
             }
             throw err;
         }
 
-        // Reintenta si por azar el código generado ya existe (muy poco probable, pero es gratis cubrirlo).
+        // Reintenta si por azar el codigo generado ya existe (muy poco probable, pero es gratis cubrirlo).
         let classCode;
         for (let attempt = 0; attempt < 5; attempt++) {
             classCode = generateClassCode();
@@ -80,19 +119,18 @@ async function registerTeacher({ username, password, displayName }) {
 }
 
 async function registerStudent({ username, password, classCode }) {
-    if (!username || !password || !classCode) {
-        throw new AuthError('Faltan datos: username, password y classCode son obligatorios.');
+    if (!classCode) {
+        throw new AuthError('Faltan datos: classCode es obligatorio.');
     }
-    if (password.length < 4) {
-        throw new AuthError('La contraseña debe tener al menos 4 caracteres.');
-    }
+    validateUsername(username);
+    validatePassword(password);
 
     const [teacherRows] = await pool.query(
         'SELECT user_id FROM teachers WHERE class_code = ?',
         [classCode.toUpperCase()]
     );
     if (teacherRows.length === 0) {
-        throw new AuthError('El código de docente no existe.', 404);
+        throw new AuthError('El codigo de docente no existe.', 404);
     }
     const teacherId = teacherRows[0].user_id;
 
@@ -111,7 +149,7 @@ async function registerStudent({ username, password, classCode }) {
             userId = userResult.insertId;
         } catch (err) {
             if (err.code === 'ER_DUP_ENTRY') {
-                throw new AuthError('Ese nombre de usuario ya está en uso.', 409);
+                throw new AuthError('Ese nombre de usuario ya esta en uso.', 409);
             }
             throw err;
         }
@@ -135,19 +173,22 @@ async function login({ username, password }) {
     if (!username || !password) {
         throw new AuthError('Faltan datos: username y password son obligatorios.');
     }
+    if (password.length > MAX_PASSWORD_LENGTH) {
+        throw new AuthError('Usuario o contrasena incorrectos.', 401);
+    }
 
     const [rows] = await pool.query(
-        'SELECT id, role, password_hash FROM users WHERE username = ?',
+        'SELECT id, role, password_hash, is_active, token_version FROM users WHERE username = ?',
         [username]
     );
     if (rows.length === 0) {
-        throw new AuthError('Usuario o contraseña incorrectos.', 401);
+        throw new AuthError('Usuario o contrasena incorrectos.', 401);
     }
 
     const user = rows[0];
     const passwordMatches = await bcrypt.compare(password, user.password_hash);
-    if (!passwordMatches) {
-        throw new AuthError('Usuario o contraseña incorrectos.', 401);
+    if (!passwordMatches || !user.is_active) {
+        throw new AuthError('Usuario o contrasena incorrectos.', 401);
     }
 
     return { token: signToken(user), role: user.role };
