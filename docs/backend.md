@@ -31,16 +31,19 @@ Regla: una ruta nunca habla directo con la base. Ruta → controlador → servic
 | `src/services/demo.service.js` | Avance del día en modo demo. |
 | `src/services/ranking.service.js` | Ranking de la clase. |
 | `src/services/teacher.service.js` | Panel docente (estudiantes y temas difíciles). |
+| `src/services/user.service.js` | Perfil propio (`/users/me`): leer y editar avatar/XP o nombre. |
 | `src/controllers/activity.controller.js` | Endpoints de actividades. |
 | `src/controllers/dailyChallenge.controller.js` | Endpoints del reto diario. |
 | `src/controllers/ranking.controller.js` | Endpoint de ranking. |
 | `src/controllers/teacher.controller.js` | Endpoints del panel docente. |
 | `src/controllers/demo.controller.js` | Endpoint de modo demo. |
+| `src/controllers/user.controller.js` | Endpoints de usuarios (`/users/me`). |
 | `src/routes/activities.routes.js` | Rutas de actividades. |
 | `src/routes/dailyChallenge.routes.js` | Rutas del reto diario. |
 | `src/routes/ranking.routes.js` | Ruta de ranking. |
 | `src/routes/teacher.routes.js` | Rutas del panel docente. |
 | `src/routes/demo.routes.js` | Ruta de modo demo. |
+| `src/routes/users.routes.js` | Rutas de usuarios (`/users/me`). |
 | `src/middleware/rateLimiter.js` | Límites de peticiones (general y auth). |
 | `tests/api.test.js` | Pruebas de integración (ver abajo). |
 

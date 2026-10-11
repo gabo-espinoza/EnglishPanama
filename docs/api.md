@@ -9,8 +9,8 @@ Todas las respuestas son JSON. Los endpoints protegidos requieren el header:
 Authorization: Bearer <token>
 ```
 
-> **Estado:** los módulos de Auth, Actividades, Reto diario, Ranking, Panel docente
-> y Modo demo están **implementados**. Ver `docs/backend.md` y `docs/security.md`.
+> **Estado:** los módulos de Auth, Usuarios, Actividades, Reto diario, Ranking,
+> Panel docente y Modo demo están **implementados**. Ver `docs/backend.md` y `docs/security.md`.
 
 ## Reglas de XP y niveles
 
@@ -85,6 +85,64 @@ Códigos usados: `400` (datos inválidos), `401` (sin token o token inválido),
 *Validaciones:* el `username` admite entre 3 y 30 caracteres (letras, números,
 punto, guion o guion bajo) y la contraseña entre 4 y 72 caracteres.
 `login` y `register` tienen límite de intentos (ver `docs/security.md`).
+
+---
+
+## Usuarios (implementado)
+
+### `GET /users/me` — Protegido (cualquier rol)
+
+Devuelve el **perfil del usuario autenticado**. Cada quien ve solo lo suyo: nunca
+`password_hash` ni datos de otros usuarios (mínimo privilegio).
+
+**Respuesta 200 (estudiante):**
+```json
+{
+  "id": 7,
+  "role": "student",
+  "alias": "dani_88",
+  "avatar": "default",
+  "xp": 140,
+  "teacherId": 1,
+  "classCode": "MGSP2Y",
+  "level": 2,
+  "xpIntoLevel": 40,
+  "xpForNextLevel": 100
+}
+```
+
+**Respuesta 200 (docente):**
+```json
+{
+  "id": 1,
+  "role": "teacher",
+  "alias": "profe_daniel",
+  "displayName": "Profe Daniel",
+  "classCode": "MGSP2Y"
+}
+```
+
+**Errores:** `404` si la cuenta ya no existe.
+
+### `PATCH /users/me` — Protegido (cualquier rol)
+
+Permite editar el **perfil propio**. El nombre de usuario (login) nunca se puede cambiar.
+
+**Body (estudiante):**
+```json
+{ "avatar": "zorro-9" }
+```
+`avatar` es un identificador corto (letras, números, guion o guion bajo; hasta 50).
+
+**Body (docente):**
+```json
+{ "displayName": "Profe Daniel" }
+```
+`displayName` admite de 1 a 100 caracteres.
+
+**Respuesta 200:** el mismo perfil actualizado (igual formato que `GET /users/me`).
+
+**Errores:** `400` si no hay campos válidos o el formato es incorrecto; `404` si la cuenta no existe.
 
 ---
 

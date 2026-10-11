@@ -37,6 +37,18 @@ test('rechaza rutas protegidas sin token (401)', async () => {
     assert.ok((await res.json()).error);
 });
 
+test('el perfil de usuario exige token (401)', async () => {
+    const res = await fetch(`${baseUrl}/users/me`);
+    assert.strictEqual(res.status, 401);
+    assert.ok((await res.json()).error);
+});
+
+test('actualizar el perfil exige token (401)', async () => {
+    const res = await fetch(`${baseUrl}/users/me`, { method: 'PATCH' });
+    assert.strictEqual(res.status, 401);
+    assert.ok((await res.json()).error);
+});
+
 test('rechaza un rol equivocado (403)', async () => {
     const res = await fetch(`${baseUrl}/teacher/students`, {
         headers: { Authorization: `Bearer ${token('student')}` }
