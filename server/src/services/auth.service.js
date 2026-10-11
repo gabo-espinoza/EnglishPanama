@@ -6,6 +6,12 @@ const SALT_ROUNDS = 10;
 const CLASS_CODE_LENGTH = 6;
 const CLASS_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sin 0/O/1/I, para que no se confundan al escribirlo a mano
 
+// Validación de entrada: el nombre de usuario solo admite caracteres seguros
+// (letras, números, punto, guion y guion bajo) y un largo acotado.
+const USERNAME_PATTERN = /^[A-Za-z0-9_.-]{3,30}$/;
+const MAX_PASSWORD_LENGTH = 72; // bcrypt solo usa los primeros 72 bytes
+const MAX_DISPLAY_NAME_LENGTH = 100;
+
 function generateClassCode() {
     let code = '';
     for (let i = 0; i < CLASS_CODE_LENGTH; i++) {
@@ -25,13 +31,38 @@ class AuthError extends Error {
     }
 }
 
-async function registerTeacher({ username, password, displayName }) {
-    if (!username || !password || !displayName) {
-        throw new AuthError('Faltan datos: username, password y displayName son obligatorios.');
+function validateUsername(username) {
+    if (!username) {
+        throw new AuthError('El nombre de usuario es obligatorio.');
+    }
+    if (!USERNAME_PATTERN.test(username)) {
+        throw new AuthError(
+            'El nombre de usuario debe tener entre 3 y 30 caracteres y solo puede incluir letras, números, punto, guion o guion bajo.'
+        );
+    }
+}
+
+function validatePassword(password) {
+    if (!password) {
+        throw new AuthError('La contraseña es obligatoria.');
     }
     if (password.length < 4) {
         throw new AuthError('La contraseña debe tener al menos 4 caracteres.');
     }
+    if (password.length > MAX_PASSWORD_LENGTH) {
+        throw new AuthError('La contraseña es demasiado larga.');
+    }
+}
+
+async function registerTeacher({ username, password, displayName }) {
+    if (!displayName) {
+        throw new AuthError('Faltan datos: displayName es obligatorio.');
+    }
+    if (displayName.length > MAX_DISPLAY_NAME_LENGTH) {
+        throw new AuthError('El nombre para mostrar es demasiado largo.');
+    }
+    validateUsername(username);
+    validatePassword(password);
 
     const connection = await pool.getConnection();
     try {
@@ -80,12 +111,11 @@ async function registerTeacher({ username, password, displayName }) {
 }
 
 async function registerStudent({ username, password, classCode }) {
-    if (!username || !password || !classCode) {
-        throw new AuthError('Faltan datos: username, password y classCode son obligatorios.');
+    if (!classCode) {
+        throw new AuthError('Faltan datos: classCode es obligatorio.');
     }
-    if (password.length < 4) {
-        throw new AuthError('La contraseña debe tener al menos 4 caracteres.');
-    }
+    validateUsername(username);
+    validatePassword(password);
 
     const [teacherRows] = await pool.query(
         'SELECT user_id FROM teachers WHERE class_code = ?',
@@ -134,6 +164,9 @@ async function registerStudent({ username, password, classCode }) {
 async function login({ username, password }) {
     if (!username || !password) {
         throw new AuthError('Faltan datos: username y password son obligatorios.');
+    }
+    if (password.length > MAX_PASSWORD_LENGTH) {
+        throw new AuthError('Usuario o contraseña incorrectos.', 401);
     }
 
     const [rows] = await pool.query(
