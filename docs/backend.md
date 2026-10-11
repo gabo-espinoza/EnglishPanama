@@ -24,7 +24,7 @@ Regla: una ruta nunca habla directo con la base. Ruta → controlador → servic
 | Archivo | Rol |
 |---|---|
 | `src/utils/AppError.js` | Error con código HTTP, para responder 4xx en vez de 500. |
-| `src/services/xp.service.js` | Reglas de XP y niveles. |
+| `src/services/xp.service.js` | Reglas de XP, niveles y datos de la barra de progreso. |
 | `src/services/settings.service.js` | Lectura/escritura de `app_settings` (offset demo). |
 | `src/services/activity.service.js` | Listar actividades, preguntas y corregir intentos. |
 | `src/services/dailyChallenge.service.js` | Reto diario y completado. |

@@ -1,6 +1,6 @@
 const pool = require('../config/db');
 const AppError = require('../utils/AppError');
-const { xpForScore, levelForXp } = require('./xp.service');
+const { xpForScore, progressForXp } = require('./xp.service');
 
 const VALID_MODULES = ['vocabulary', 'grammar', 'reading'];
 
@@ -126,7 +126,7 @@ async function submitAttempt(studentId, activityId, answers) {
 
         await connection.commit();
 
-        return { score, xpEarned, totalXp, level: levelForXp(totalXp) };
+        return { score, xpEarned, totalXp, ...progressForXp(totalXp) };
     } catch (err) {
         await connection.rollback();
         throw err;

@@ -22,6 +22,10 @@ Authorization: Bearer <token>
 
 Ejemplo: 8 aciertos → 40 XP; si el estudiante tenía 100 XP, queda con 140 XP y sube a nivel 2.
 
+Las respuestas que otorgan XP (intento de actividad y reto diario) y el ranking
+incluyen además los datos para pintar la **barra de progreso**: `xpIntoLevel`
+(XP dentro del nivel actual) y `xpForNextLevel` (XP que pide el siguiente nivel).
+
 ## Formato de errores
 
 Cualquier error responde con este formato, con el código HTTP correspondiente:
@@ -127,7 +131,7 @@ Envía todas las respuestas de una actividad. El servidor corrige, calcula XP y 
 
 **Respuesta 201:**
 ```json
-{ "score": 8, "xpEarned": 40, "totalXp": 140, "level": 2 }
+{ "score": 8, "xpEarned": 40, "totalXp": 140, "level": 2, "xpIntoLevel": 40, "xpForNextLevel": 100 }
 ```
 
 *Notas:* la corrección y el cálculo de XP ocurren **siempre en el servidor**;
@@ -160,7 +164,7 @@ Marca el reto de hoy como completado y otorga **10 XP**. Falla con `409` si ya s
 
 **Respuesta 201:**
 ```json
-{ "completed": true, "completedOn": "2026-11-05", "xpEarned": 10, "totalXp": 150, "level": 2 }
+{ "completed": true, "completedOn": "2026-11-05", "xpEarned": 10, "totalXp": 150, "level": 2, "xpIntoLevel": 50, "xpForNextLevel": 100 }
 ```
 
 *Nota:* el reto de hoy se calcula como `pool[dayOfYear(fecha_efectiva) % total]`,
@@ -178,7 +182,7 @@ Devuelve el ranking de la clase del estudiante autenticado (por `teacher_id`), o
 **Respuesta 200:**
 ```json
 [
-  { "position": 1, "alias": "dani_88", "avatar": "default", "xp": 140, "level": 2 }
+  { "position": 1, "alias": "dani_88", "avatar": "default", "xp": 140, "level": 2, "xpIntoLevel": 40, "xpForNextLevel": 100 }
 ]
 ```
 

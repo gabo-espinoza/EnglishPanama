@@ -1,6 +1,6 @@
 const pool = require('../config/db');
 const AppError = require('../utils/AppError');
-const { levelForXp } = require('./xp.service');
+const { progressForXp } = require('./xp.service');
 
 // Ranking de la clase del estudiante autenticado.
 // Expone solo alias (username), avatar, XP y nivel: nunca nombres reales ni datos personales.
@@ -28,7 +28,7 @@ async function getClassRanking(studentId) {
         alias: row.alias,
         avatar: row.avatar,
         xp: row.xp,
-        level: levelForXp(row.xp)
+        ...progressForXp(row.xp)
     }));
 }
 

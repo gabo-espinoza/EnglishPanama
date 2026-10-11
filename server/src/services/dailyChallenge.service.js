@@ -1,7 +1,7 @@
 const pool = require('../config/db');
 const AppError = require('../utils/AppError');
 const { getDemoDayOffset } = require('./settings.service');
-const { levelForXp } = require('./xp.service');
+const { progressForXp } = require('./xp.service');
 
 // XP que otorga completar el reto diario.
 const DAILY_CHALLENGE_XP = 10;
@@ -103,7 +103,7 @@ async function completeDailyChallenge(studentId) {
 
         await connection.commit();
 
-        return { completed: true, completedOn, xpEarned, totalXp, level: levelForXp(totalXp) };
+        return { completed: true, completedOn, xpEarned, totalXp, ...progressForXp(totalXp) };
     } catch (err) {
         await connection.rollback();
         throw err;
