@@ -1,6 +1,6 @@
 # Spec — Cuentas de gestión, Fase A (base de personal, MFA y auditoría)
 
-Estado: **borrador para revisión**. Origen: diagrama "English Panamá" (usuarios, roles de gestión, arquitectura, modularidad y seguridad).
+Estado: **ajustado a la implementación del PR [#2](https://github.com/gabo-espinoza/EnglishPanama/pull/2)** (Daniel, `feat/backend-mvp`), más los arreglos de `fix/staff-hardening`. Origen: diagrama "English Panamá" (usuarios, roles de gestión, arquitectura, modularidad y seguridad).
 
 ## 1. Decisiones ya tomadas
 
@@ -8,31 +8,56 @@ Estado: **borrador para revisión**. Origen: diagrama "English Panamá" (usuario
 2. **Gestor de base de datos y Gestor de la aplicación no son cuentas de la app.** Son usuarios Linux en las VM, con permisos documentados en `docs/ops/vm-roles.md` (fuera de esta fase).
 3. **Un gestor tiene exactamente un rol.** Así la separación de funciones se cumple por construcción.
 4. Se trabaja por fases, con spec e implementación por fase.
+5. **Se mantienen 8 roles en la app**, dos más que los 6 que pedía el diagrama una vez quitados los de infraestructura. `analyst` sale del Gestor de usuarios y accesos (métricas) y `moderator` sale del Gestor de juego y ranking (moderación). Así cada rol tiene un solo tipo de poder: acceso a cuentas, datos, contenido, reglas del juego o moderación.
 
 ## 2. Roles de la app
 
-| Rol (`staff_role`) | Área (`aud` del token) | Fase |
-|---|---|---|
-| `access_manager` (Gestor de usuarios y accesos) | `access` | **A** |
-| `auditor` | `audit` | **A** |
-| `content_manager` | `content` | B |
-| `content_reviewer` | `content` | B |
-| `game_manager` | `game` | C |
-| `support` | `support` | C |
+| Rol (`staff_role`) | Área (`aud` del token) | Función | Estado |
+|---|---|---|---|
+| `access_manager` (Gestor de usuarios y accesos) | `access` | Listar cuentas de personal, solicitar suspensión o activación, crear cuentas de docente | Implementado (PR #2) |
+| `auditor` | `audit` | Consultar y verificar la auditoría, decidir solicitudes de cambio de cuentas | Implementado (PR #2) |
+| `analyst` | `analytics` | Métricas agregadas y anónimas (`GET /staff/analytics/dashboard`) | Implementado (PR #2) |
+| `content_manager` | `content` | Crear cursos, lecciones, ejercicios y audios (`/courses`, `/media/upload`, `/quizzes`); corregir reportes escalados | **Fase B**: solo existe la cuenta |
+| `content_reviewer` | `content` | Aprobar o rechazar lo que propone el gestor; nunca lo propio | **Fase B**: solo existe la cuenta |
+| `game_manager` | `game` | Reglas de puntos, niveles y reto diario; ocultar alias del ranking | **Fase C**: solo existe la cuenta |
+| `moderator` | `moderation` | Borrar spam o comentarios ofensivos, silenciar o restringir usuarios | **Fase C**: solo existe la cuenta |
+| `support` | `support` | Ver alias y estado de cuenta, ver reportes de preguntas con error, escalarlos al gestor de contenido | **Fase C**: solo existe la cuenta |
 
-`content_manager` y `content_reviewer` comparten área pero distinto rol; el middleware valida área **y** rol.
+`content_manager` y `content_reviewer` comparten área pero tienen rol distinto: el middleware valida área **y** rol.
 
-## 3. Alcance de la Fase A
+Qué cambia respecto al diagrama original:
+
+- Las **métricas anónimas** pasan del Gestor de usuarios y accesos al `analyst`. El `access_manager` ya no las ve.
+- La **moderación** (borrar comentarios, restringir usuarios) pasa del Gestor de juego y ranking al `moderator`. El `game_manager` conserva las reglas del juego y los alias en el ranking.
+- Los roles **Gestor de base de datos** y **Gestor de la aplicación** siguen fuera de la app (usuarios Linux en las VM).
+
+## 3. Alcance por fase
+
+**Fase A (implementada en el PR #2, con arreglos en `fix/staff-hardening`):**
 
 - Tablas de personal, roles y estado de cuenta.
-- Script de creación de cuentas de gestión (solo servidor).
+- Scripts de creación de cuentas de gestión (solo servidor).
 - Login de personal con contraseña + TOTP, sesión corta, token con área.
-- Middleware `requireStaff(area, roles?)` que revalida contra la base en cada petición.
-- Registro de auditoría en una base aparte, solo-inserción.
-- Rol **Gestor de usuarios y accesos**: crear cuentas de docente, proponer suspensión/activación de personal, métricas anónimas.
-- Rol **Auditor**: consultar auditoría, aprobar/rechazar cambios a cuentas de personal.
+- Middleware `requireStaff({ area, roles })` que revalida contra la base en cada petición.
+- Registro de auditoría en una base aparte, solo-inserción y con cadena de hashes.
+- Roles `access_manager`, `auditor` y `analyst` con sus endpoints.
 
-Fuera de la fase: contenido y revisión (B), moderación y soporte (C), endpoints de sistema y `analytics` avanzado, foro.
+**Fase B (siguiente):** `content_manager` y `content_reviewer`: endpoints de contenido y flujo de revisión (borrador, en revisión, publicado) con autor distinto del revisor. Depende de las tablas de actividades.
+
+**Fase C:** `game_manager`, `moderator` y `support`: reglas del juego y alias, moderación y restricciones, reportes de preguntas con error y su escalamiento. El foro y los comentarios se incluyen aquí solo si el profesor lo exige.
+
+**Fase de operaciones:** `docs/ops/vm-roles.md` con los usuarios Linux de las VM (Gestor de base de datos y Gestor de la aplicación) y sus permisos, además de `/system/logs` y `/system/maintenance` si se decide exponerlos.
+
+### Endurecimiento posterior a la revisión del PR #2
+
+Cuatro correcciones sobre la implementación inicial (`fix/staff-hardening`):
+
+1. `requireStaff` pasa los fallos de la base a `next(err)`. En Express 4 un rechazo sin capturar podía tumbar el proceso.
+2. La escritura de auditoría se serializa con `GET_LOCK`. Sin eso, dos peticiones simultáneas tomaban el mismo `prev_hash` y `verify()` reportaba una rotura falsa. No usa `FOR UPDATE` porque `audit_writer` no tiene `UPDATE`.
+3. `seed-demo-staff.js` ya no tiene contraseña por defecto, exige `DEMO_STAFF_PASSWORD` de al menos 12 caracteres, se niega a correr con `NODE_ENV=production` y no modifica el esquema.
+4. En producción las cuatro variables `AUDIT_DB_*` son obligatorias y el servidor no arranca sin ellas, para que la auditoría nunca caiga en silencio a la base principal.
+
+Pendientes conocidos, fuera de esos cuatro: la auditoría nunca lanza (una acción sensible puede ejecutarse sin quedar registrada si la base de auditoría cae), no se corre bcrypt cuando el usuario no existe (diferencia de tiempo de respuesta) y un código TOTP puede reutilizarse dentro de su ventana.
 
 ## 4. Modelo de datos
 
@@ -44,9 +69,11 @@ CREATE TABLE staff_accounts (
     username         VARCHAR(50)  NOT NULL,
     password_hash    VARCHAR(255) NOT NULL,
     role             ENUM('access_manager','auditor','content_manager',
-                          'content_reviewer','game_manager','support') NOT NULL,
+                          'content_reviewer','game_manager','support',
+                          'analyst','moderator') NOT NULL,
     status           ENUM('active','suspended') NOT NULL DEFAULT 'active',
     mfa_secret_enc   VARBINARY(255) NOT NULL COMMENT 'TOTP cifrado AES-256-GCM, clave en env',
+    token_version    INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Cambiarla revoca los tokens ya emitidos',
     failed_attempts  TINYINT UNSIGNED NOT NULL DEFAULT 0,
     locked_until     DATETIME NULL,
     created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -105,7 +132,7 @@ Login separado del de estudiantes y docentes: `POST /api/staff/auth/login`.
 4. Emite un JWT con `{ sub, typ: "staff", role, aud: <área> }`, **duración 20 minutos**, sin refresh: al expirar se vuelve a autenticar con contraseña y TOTP.
 5. El secreto del token de personal es distinto al de usuarios (`STAFF_JWT_SECRET`). Un token de estudiante o docente no sirve en `/api/staff/*` y viceversa.
 
-`requireStaff(area, roles?)` en cada petición: verifica firma y `aud`, **consulta `staff_accounts`** (existe, `active`, rol coincide) y registra la acción en auditoría. Así una suspensión surte efecto de inmediato aunque el token siga vigente.
+`requireStaff({ area, roles })` en cada petición: verifica firma y `typ`, **consulta `staff_accounts`** (existe, `active`, `token_version` igual al del token), valida área y rol, y registra los accesos denegados en auditoría. Así una suspensión surte efecto de inmediato aunque el token siga vigente: al aprobarla se incrementa `token_version`.
 
 Enrolamiento TOTP: el script de creación imprime **una sola vez** el URI `otpauth://` (y opcionalmente un QR en terminal) para el celular del gestor. El secreto se guarda cifrado.
 
@@ -114,7 +141,7 @@ Enrolamiento TOTP: el script de creación imprime **una sola vez** el URI `otpau
 `server/scripts/create-staff.js`:
 
 ```
-node scripts/create-staff.js --username ana.gomez --role auditor
+node scripts/create-staff.js ana.accesos access_manager
 ```
 
 - Pide la contraseña por prompt interactivo (no por argumento, para no dejarla en el historial del shell). Exige mínimo 12 caracteres.
@@ -122,28 +149,29 @@ node scripts/create-staff.js --username ana.gomez --role auditor
 - Escribe en auditoría `actor_type='system'`, `action='staff.create'`, con el usuario Linux que lo ejecutó.
 - Solo corre en la VM del servidor, con el `.env` de producción. No se expone por HTTP.
 - Gemelos: `list-staff.js` (solo lectura) y `reset-staff-mfa.js` (regenera TOTP, queda en auditoría).
+- `seed-demo-staff.js` crea 24 cuentas de demostración (3 por rol). Es solo para desarrollo: exige `DEMO_STAFF_PASSWORD` y no corre con `NODE_ENV=production`.
 
-## 7. API (a agregar a `docs/api.md` antes de implementar)
+## 7. API
 
-Prefijo `/api/staff`. Todos devuelven errores `{ "error": "..." }`.
+Prefijo `/api/staff`. Todos devuelven errores `{ "error": "..." }`. Contrato detallado en `docs/api.md`.
 
 | Método y ruta | Rol | Qué hace |
 |---|---|---|
-| `POST /staff/auth/login` | público | Login con contraseña + TOTP. `200 { token, role, expiresIn }` |
+| `POST /staff/auth/login` | público | Login con contraseña + TOTP. `200 { token, role, area, expiresIn }` |
 | `GET /staff/me` | cualquier gestor | Rol, área y estado de la cuenta |
 | `GET /staff/accounts` | `access_manager`, `auditor` | Lista de cuentas de personal (sin secretos) |
-| `POST /staff/change-requests` | `access_manager` | Body `{ targetId, action }` con `suspend` o `activate`. Crea solicitud `pending`. No puede apuntar a su propia cuenta. |
+| `POST /staff/change-requests` | `access_manager` | Body `{ targetId, action }` con `suspend` o `activate`. No puede apuntar a su propia cuenta. |
 | `GET /staff/change-requests?status=` | `access_manager`, `auditor` | Lista solicitudes |
-| `POST /staff/change-requests/:id/decision` | `auditor` | Body `{ decision: "approved" \| "rejected" }`. Si se aprueba, aplica el cambio en transacción. |
+| `POST /staff/change-requests/:id/decision` | `auditor` | Body `{ decision: "approved" \| "rejected" }`. Si se aprueba, aplica el cambio en transacción y revoca los tokens de esa cuenta. |
 | `POST /staff/teachers` | `access_manager` | Crea cuenta de docente, devuelve contraseña temporal y `classCode` |
-| `GET /staff/analytics/dashboard` | `access_manager` | Métricas agregadas y anónimas (totales de estudiantes, docentes, actividades; sin alias ni nombres) |
-| `GET /staff/audit` | `auditor` | Consulta paginada y filtrable por actor, acción y fechas |
+| `GET /staff/analytics/dashboard` | `analyst` | Métricas agregadas y anónimas |
+| `GET /staff/audit` | `auditor` | Consulta paginada y filtrable |
 | `GET /staff/audit/verify` | `auditor` | Recorre la cadena de hashes y devuelve `{ ok, brokenAtId? }` |
 
 Reglas de separación de funciones aplicadas:
 
 - Quien solicita un cambio no puede decidirlo, y nadie decide sobre su propia cuenta.
-- El `access_manager` no ve contraseñas ni datos personales de alumnos, ni toca contenido o servidor.
+- El `access_manager` no ve contraseñas ni datos personales de alumnos, ni toca contenido, métricas o servidor.
 - El auditor solo escribe decisiones sobre solicitudes; no puede modificar ni borrar el registro.
 - Ningún endpoint de personal permite darse permisos a sí mismo.
 
@@ -152,16 +180,18 @@ Reglas de separación de funciones aplicadas:
 ```
 server/src/
 ├── config/auditDb.js            Pool con credenciales audit_writer
-├── middleware/staffAuth.js      requireStaff(area, roles?)
+├── config/staffRoles.js         Rol -> área
+├── middleware/staffAuth.js      requireStaff({ area, roles })
 ├── services/staffAuth.service.js    login, TOTP, bloqueo
 ├── services/audit.service.js        record(), list(), verify()
 ├── services/staffAccounts.service.js
+├── utils/totp.js, mfaCrypto.js  TOTP (RFC 6238) y cifrado AES-256-GCM, solo con `crypto`
 ├── controllers/ staff*.controller.js
 └── routes/staff.routes.js       montado en routes/index.js bajo /staff
-server/scripts/                  create-staff.js, list-staff.js, reset-staff-mfa.js
+server/scripts/                  create-staff.js, list-staff.js, reset-staff-mfa.js, seed-demo-staff.js
 ```
 
-Dependencias nuevas: `otplib` (TOTP), `express-rate-limit` (límite por IP en login). El cifrado usa `crypto` de Node.
+Dependencias nuevas: `helmet` y `express-rate-limit` (límite por IP). El TOTP y el cifrado se implementan con `crypto` de Node, sin `otplib`.
 
 Variables nuevas en `env.example`: `STAFF_JWT_SECRET`, `STAFF_MFA_KEY` (32 bytes en base64), `AUDIT_DB_HOST`, `AUDIT_DB_USER`, `AUDIT_DB_PASSWORD`, `AUDIT_DB_NAME`.
 
@@ -174,6 +204,7 @@ Variables nuevas en `env.example`: `STAFF_JWT_SECRET`, `STAFF_MFA_KEY` (32 bytes
 - Solicitud: no se puede apuntar a la propia cuenta ni decidir la propia solicitud; solo el auditor decide.
 - Auditoría: cada acción del personal deja una fila; `verify` detecta una fila alterada a mano; `audit_writer` no puede hacer `UPDATE` ni `DELETE`.
 - Script: la contraseña no queda en el historial; el secreto TOTP en BD no está en texto plano.
+- Endurecimiento (`tests/staff-hardening.test.js`, sin MySQL): un fallo de la base en `requireStaff` llega a `next(err)`; la cadena de auditoría sigue válida con 40 escrituras concurrentes; el seed de demo se niega a correr en producción o sin contraseña; las variables `AUDIT_DB_*` son obligatorias en producción.
 
 ## 10. Entregables de la Fase A
 
@@ -183,8 +214,16 @@ Variables nuevas en `env.example`: `STAFF_JWT_SECRET`, `STAFF_MFA_KEY` (32 bytes
 4. Pruebas de la sección 9.
 5. `docs/ops/vm-roles.md` queda para la fase de operaciones, aquí solo se deja el enlace.
 
-## 11. Preguntas abiertas
+## 11. Decisiones tomadas y preguntas abiertas
 
-1. **¿La suspensión pasa por aprobación del auditor?** La spec asume que sí, porque el diagrama dice que cambiar una cuenta de gestor lo requiere. Si el profesor prefiere suspensión inmediata como medida de emergencia, se agrega con auditoría posterior.
-2. **¿La base de auditoría va en la misma instancia MySQL (schema aparte) o en otra VM?** La spec asume el mismo servidor con schema y usuario aparte. Una VM distinta es más fuerte pero exige coordinar con el equipo de infraestructura.
-3. **¿Contraseña temporal del docente creado por el gestor o correo de activación?** La spec asume contraseña temporal mostrada una sola vez, porque la app no tiene correo.
+Resueltas:
+
+1. **Suspensión de personal:** pasa por aprobación del auditor, como dice el diagrama. Es lo implementado.
+2. **Contraseña del docente creado por el gestor:** contraseña temporal mostrada una sola vez, porque la app no tiene correo.
+3. **Roles `analyst` y `moderator`:** se mantienen (decisión del equipo).
+
+Abiertas:
+
+1. **Base de auditoría:** hoy es un schema aparte en el mismo servidor MySQL. ¿Se mueve a otra VM? Es más fuerte pero exige coordinar con infraestructura.
+2. **Auditoría que no lanza:** ¿las acciones sensibles (decidir solicitudes, crear docentes) deben fallar si no se puede registrar la auditoría?
+3. **Foro y comentarios:** el diagrama los menciona en el Gestor de juego. ¿Se construyen o solo se documentan como fase futura?
