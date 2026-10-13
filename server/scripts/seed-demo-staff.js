@@ -6,9 +6,14 @@
 // para demostrar que la administracion esta dividida y que ningun usuario
 // tiene el control total. Si una cuenta ya existe, se deja igual.
 //
-// La contrasena es la de la variable DEMO_STAFF_PASSWORD (por defecto
-// 'Staff2026!Seguro'). El secreto TOTP se genera, se cifra y NUNCA se imprime:
-// para entregar el MFA a una persona se usa scripts/reset-staff-mfa.js.
+// SOLO PARA DESARROLLO Y DEMOSTRACION. Se niega a correr con NODE_ENV=production:
+// en produccion las cuentas se crean una a una con scripts/create-staff.js.
+//
+// La contrasena sale de la variable DEMO_STAFF_PASSWORD (obligatoria, minimo 12
+// caracteres, sin valor por defecto en el codigo). El secreto TOTP se genera, se cifra
+// y NUNCA se imprime: para entregar el MFA a una persona se usa scripts/reset-staff-mfa.js.
+//
+// Requiere que staff.sql ya este cargado (el script no modifica el esquema).
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
@@ -20,7 +25,7 @@ const audit = require('../src/services/audit.service');
 const { closeAuditPool } = require('../src/config/auditDb');
 const { STAFF_ROLES, areaForRole } = require('../src/config/staffRoles');
 
-const PASSWORD = process.env.DEMO_STAFF_PASSWORD || 'Staff2026!Seguro';
+const MIN_PASSWORD = 12;
 
 // 3 cuentas por rol. Los alias son genericos (nunca nombres reales).
 const ROSTER = [
@@ -50,21 +55,26 @@ const ROSTER = [
     ['zoe.comunidad', 'moderator']
 ];
 
-// Refresca el ENUM de la columna `role` para que acepte los roles nuevos
-// aunque la tabla se haya creado con una version anterior del script SQL.
-async function ensureRoleEnum() {
-    const values = STAFF_ROLES.map((r) => `'${r}'`).join(',');
-    await pool.query(`ALTER TABLE staff_accounts MODIFY COLUMN role ENUM(${values}) NOT NULL`);
+function assertSafeToRun() {
+    if (process.env.NODE_ENV === 'production') {
+        throw new Error('Este script es solo de demostracion y no corre con NODE_ENV=production. '
+            + 'Usa scripts/create-staff.js para crear cuentas reales.');
+    }
+    const password = process.env.DEMO_STAFF_PASSWORD || '';
+    if (password.length < MIN_PASSWORD) {
+        throw new Error(`Define DEMO_STAFF_PASSWORD en el .env (minimo ${MIN_PASSWORD} caracteres).`);
+    }
+    return password;
 }
 
 async function main() {
+    const PASSWORD = assertSafeToRun();
+
     for (const [, role] of ROSTER) {
         if (!STAFF_ROLES.includes(role)) {
             throw new Error('Rol no soportado: ' + role);
         }
     }
-
-    await ensureRoleEnum();
 
     const [existingRows] = await pool.query('SELECT username FROM staff_accounts');
     const existing = new Set(existingRows.map((r) => r.username));

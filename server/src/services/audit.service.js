@@ -40,11 +40,28 @@ function hashRow(row) {
     return crypto.createHash('sha256').update(canonical(row)).digest('hex');
 }
 
+const CHAIN_LOCK = 'englishpanama_audit_chain';
+const CHAIN_LOCK_TIMEOUT_SECONDS = 5;
+
+// Cada fila depende del hash de la anterior, asi que leer el ultimo hash e insertar
+// debe ser atomico: si dos peticiones lo hacen a la vez toman el mismo prev_hash y
+// verify() reporta una rotura que no es manipulacion. Se serializa con GET_LOCK, que
+// no necesita permisos de UPDATE (audit_writer solo tiene INSERT y SELECT) y funciona
+// aunque haya varios procesos del servidor.
+//
 // Nunca lanza: si la auditoria falla, no debe tumbar la peticion del usuario.
 async function record({ actorType, actorId = null, actorRole = null, action, target = null, outcome = 'ok', ip = null }) {
+    let conn = null;
+    let locked = false;
     try {
-        const pool = getAuditPool();
-        const [last] = await pool.query('SELECT row_hash FROM audit_log ORDER BY id DESC LIMIT 1');
+        conn = await getAuditPool().getConnection();
+        const [lockRows] = await conn.query('SELECT GET_LOCK(?, ?) AS acquired', [CHAIN_LOCK, CHAIN_LOCK_TIMEOUT_SECONDS]);
+        if (Number(lockRows[0].acquired) !== 1) {
+            throw new Error('no se pudo obtener el bloqueo de la cadena de auditoria');
+        }
+        locked = true;
+
+        const [last] = await conn.query('SELECT row_hash FROM audit_log ORDER BY id DESC LIMIT 1');
         const prevHash = last.length > 0 ? last[0].row_hash : GENESIS;
 
         const occurredAt = new Date();
@@ -61,7 +78,7 @@ async function record({ actorType, actorId = null, actorRole = null, action, tar
         };
         const rowHash = hashRow(row);
 
-        await pool.query(
+        await conn.query(
             `INSERT INTO audit_log
                 (occurred_at, actor_type, actor_id, actor_role, action, target, outcome, ip, prev_hash, row_hash)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -71,6 +88,21 @@ async function record({ actorType, actorId = null, actorRole = null, action, tar
     } catch (err) {
         console.error('No se pudo escribir en auditoria:', err.message);
         return null;
+    } finally {
+        if (conn) {
+            let clean = true;
+            if (locked) {
+                try {
+                    await conn.query('SELECT RELEASE_LOCK(?)', [CHAIN_LOCK]);
+                } catch {
+                    clean = false;
+                }
+            }
+            // Una conexion que no pudo soltar el bloqueo se destruye: devolverla al pool
+            // dejaria la cadena bloqueada para las demas peticiones.
+            if (clean) conn.release();
+            else conn.destroy();
+        }
     }
 }
 

@@ -105,7 +105,7 @@ mysql -u root -p < database/schema.sql     # app de estudiantes/docentes
 mysql -u root -p < database/staff.sql      # cuentas de gestion
 mysql -u root -p < database/audit.sql      # base de auditoria (englishpanama_audit)
 node scripts/create-staff.js ana.accesos access_manager   # imprime el secreto TOTP
-node scripts/seed-demo-staff.js                           # 24 cuentas demo (3 por rol)
+DEMO_STAFF_PASSWORD='<12+ caracteres>' node scripts/seed-demo-staff.js   # 24 cuentas demo; solo desarrollo, no corre en produccion
 ```
 
 Arrancar:

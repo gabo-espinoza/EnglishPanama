@@ -16,6 +16,16 @@ function deny(res, status, message) {
 //   requireStaff({ area: 'content', roles: ['content_manager'] })
 function requireStaff({ area, roles } = {}) {
     return async (req, res, next) => {
+        // Express 4 no captura rechazos de middlewares async: cualquier fallo de la
+        // base o de auditoria debe terminar en next(err), no tumbar el proceso.
+        try {
+            await authorize(req, res, next);
+        } catch (err) {
+            next(err);
+        }
+    };
+
+    async function authorize(req, res, next) {
         const authHeader = req.headers.authorization || '';
         const [scheme, token] = authHeader.split(' ');
         if (scheme !== 'Bearer' || !token) {
@@ -63,7 +73,7 @@ function requireStaff({ area, roles } = {}) {
 
         req.staff = { id: account.id, username: account.username, role: account.role, area: payload.aud };
         return next();
-    };
+    }
 }
 
 module.exports = { requireStaff };
