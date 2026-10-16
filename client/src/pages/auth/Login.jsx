@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { login } from '../../api/auth';
 import { saveSession } from '../../api/session';
+import AuthBackground from '../../components/AuthBackground';
 
 export default function Login() {
     const [username, setUsername] = useState('');
@@ -26,7 +27,7 @@ export default function Login() {
     }
 
     return (
-        <div className="auth-container">
+        <AuthBackground>
             <div className="auth-card">
                 
                 <div className="flex items-center justify-center mb-8">
@@ -52,14 +53,6 @@ export default function Login() {
                         <input type="password" className="auth-input" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required />
                     </div>
 
-                    <div className="flex items-center justify-between text-sm">
-                        <label className="flex items-center text-gray-600 cursor-pointer">
-                            <input type="checkbox" className="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-                            Recordarme por 30 días
-                        </label>
-                        <a href="#" className="text-blue-600 hover:text-blue-700 font-medium">¿Olvidaste tu contraseña?</a>
-                    </div>
-
                     {error && <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg text-center">{error}</div>}
 
                     <button type="submit" disabled={loading} className="auth-button mt-2">
@@ -71,6 +64,6 @@ export default function Login() {
                     ¿No tienes una cuenta? <Link to="/register" className="text-blue-600 font-medium hover:underline">Regístrate</Link>
                 </div>
             </div>
-        </div>
+        </AuthBackground>
     );
 }
