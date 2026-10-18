@@ -72,6 +72,7 @@ Envuelve las pantallas de autenticación: fondo oscuro con degradado turquesa y 
 - Si otra pantalla devuelve al usuario al login (por ejemplo, un token vencido), deja un aviso en `location.state.notice` y el Login lo muestra.
 
 ### Registro (`/register`)
+- Solo registra **estudiantes**: las cuentas de docente no se crean por registro, las crea el gestor de accesos y el docente las recibe ya creadas (`POST /api/auth/register/teacher` responde 403).
 - Registro de estudiante con **alias**, contraseña y código de clase del docente. El alias es lo único que ven los demás (ranking), por eso el formulario pide no usar el nombre real. Reglas del backend: de 3 a 30 caracteres con letras, números, punto, guion o guion bajo.
 - Usa las mismas clases (`auth-input`, `auth-button`) que el Login para verse idéntico.
 

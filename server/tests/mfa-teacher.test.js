@@ -201,20 +201,15 @@ test('el MFA sigue siendo opcional para estudiantes: entran directo', async (t) 
     assert.strictEqual(body.role, 'student');
 });
 
-test('un docente que se registra por la API tampoco recibe sesion: debe vincular el MFA', async (t) => {
+test('el registro de docentes esta deshabilitado: no crea la cuenta (403)', async (t) => {
     if (!ready) { t.skip('sin MySQL o claves'); return; }
     const username = `prof.reg.${suffix}`;
     const res = await call('POST', '/auth/register/teacher', {
         body: { username, password: PASSWORD, displayName: 'Docente Registro' }
     });
-    assert.strictEqual(res.status, 201);
-    const body = await res.json();
-    assert.strictEqual(body.mfaSetupRequired, true);
-    assert.ok(body.enrollToken && body.classCode);
-    assert.ok(!body.token, 'el registro no debe entregar una sesion sin MFA');
-
+    assert.strictEqual(res.status, 403);
     const [rows] = await pool.query('SELECT id FROM users WHERE username = ?', [username]);
-    userIds.push(rows[0].id);
+    assert.strictEqual(rows.length, 0, 'no debe haberse creado ninguna cuenta');
 });
 
 test('reinicio manual: solo el gestor de accesos puede reiniciar el MFA de un docente', async (t) => {

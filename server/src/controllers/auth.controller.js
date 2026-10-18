@@ -1,14 +1,5 @@
 const authService = require('../services/auth.service');
 
-async function registerTeacher(req, res, next) {
-    try {
-        const result = await authService.registerTeacher(req.body);
-        res.status(201).json(result);
-    } catch (err) {
-        next(err);
-    }
-}
-
 async function registerStudent(req, res, next) {
     try {
         const result = await authService.registerStudent(req.body);
@@ -58,4 +49,15 @@ async function confirmMfa(req, res, next) {
     }
 }
 
-module.exports = { registerTeacher, registerStudent, login, loginMfa, setupMfa, confirmMfa };
+// POST /api/auth/change-password  (autenticado) - { currentPassword, newPassword }
+async function changePassword(req, res, next) {
+    try {
+        const { currentPassword, newPassword } = req.body || {};
+        const result = await authService.changePassword({ userId: req.user.id, currentPassword, newPassword });
+        res.json(result);
+    } catch (err) {
+        next(err);
+    }
+}
+
+module.exports = { changePassword, registerStudent, login, loginMfa, setupMfa, confirmMfa };
