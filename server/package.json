@@ -1,18 +1,21 @@
 {
   "name": "english-panama-server",
   "version": "0.1.0",
-  "description": "API REST de English Panamá",
+  "description": "API REST de English Panama",
   "main": "src/server.js",
   "type": "commonjs",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --watch src/server.js"
+    "dev": "node --watch src/server.js",
+    "test": "node --test"
   },
   "dependencies": {
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0",
+    "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
     "mysql2": "^3.11.0"
   },

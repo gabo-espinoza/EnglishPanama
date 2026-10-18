@@ -1,4 +1,4 @@
--- English Panamá — Esquema de base de datos (MVP)
+-- English Panama - Esquema de base de datos (MVP)
 -- Motor: MySQL 8.x
 -- Ejecutar sobre la base `englishpanama` ya creada en la VM de MySQL.
 
@@ -14,6 +14,13 @@ CREATE TABLE users (
     role          ENUM('student', 'teacher') NOT NULL,
     username      VARCHAR(50) NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
+    is_active     TINYINT(1) NOT NULL DEFAULT 1 COMMENT 'Cuenta activa; la revalida requireAuth en cada peticion',
+    token_version INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Cambiarla invalida los tokens ya emitidos (revocacion)',
+    failed_attempts       TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    locked_until          DATETIME NULL,
+    mfa_secret_enc        VARBINARY(255) NULL COMMENT 'Secreto TOTP activo, cifrado con AES-256-GCM (clave en env). NULL = MFA desactivado',
+    mfa_pending_enc       VARBINARY(255) NULL COMMENT 'Secreto TOTP en vinculacion, pendiente de confirmar con un codigo',
+    mfa_pending_expires_at DATETIME NULL,
     created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uq_users_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -40,7 +47,7 @@ CREATE TABLE students (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================================
--- Contenido: módulos, actividades, preguntas
+-- Contenido: modulos, actividades, preguntas
 -- ============================================================
 
 CREATE TABLE modules (
@@ -56,7 +63,7 @@ CREATE TABLE activities (
     title         VARCHAR(100) NOT NULL,
     game_type     ENUM('memory', 'multiple_choice', 'sentence_order', 'fill_blank') NOT NULL,
     sort_order    INT UNSIGNED NOT NULL DEFAULT 0,
-    passage_text  TEXT NULL COMMENT 'Solo se usa en actividades del módulo Reading',
+    passage_text  TEXT NULL COMMENT 'Solo se usa en actividades del modulo Reading',
     CONSTRAINT fk_activities_module
         FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE,
     KEY idx_activities_module (module_id)
@@ -65,9 +72,9 @@ CREATE TABLE activities (
 CREATE TABLE questions (
     id             INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     activity_id    INT UNSIGNED NOT NULL,
-    topic          VARCHAR(50) NOT NULL COMMENT 'Ej: "verbos irregulares" — usado para el reporte de temas difíciles',
+    topic          VARCHAR(50) NOT NULL COMMENT 'Ej: "verbos irregulares" - usado para el reporte de temas dificiles',
     prompt         TEXT NOT NULL,
-    options        JSON NOT NULL COMMENT 'Nunca se envía correct_answer al cliente antes de responder',
+    options        JSON NOT NULL COMMENT 'Nunca se envia correct_answer al cliente antes de responder',
     correct_answer JSON NOT NULL,
     CONSTRAINT fk_questions_activity
         FOREIGN KEY (activity_id) REFERENCES activities(id) ON DELETE CASCADE,
@@ -76,7 +83,7 @@ CREATE TABLE questions (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================================
--- Intentos y resultados (el nivel y el reporte docente salen de aquí)
+-- Intentos y resultados (el nivel y el reporte docente salen de aqui)
 -- ============================================================
 
 CREATE TABLE attempts (
@@ -114,7 +121,7 @@ CREATE TABLE attempt_answers (
 CREATE TABLE daily_challenges (
     id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     question_id INT UNSIGNED NOT NULL,
-    position    INT UNSIGNED NOT NULL COMMENT 'Posición en el pool; el reto de hoy = pool[(dayOfYear + offset) % total]',
+    position    INT UNSIGNED NOT NULL COMMENT 'Posicion en el pool; el reto de hoy = pool[(dayOfYear + offset) % total]',
     CONSTRAINT fk_daily_challenges_question
         FOREIGN KEY (question_id) REFERENCES questions(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -132,7 +139,7 @@ CREATE TABLE daily_completions (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================================
--- Configuración de la app (offset del modo demo, etc.)
+-- Configuracion de la app (offset del modo demo, etc.)
 -- ============================================================
 
 CREATE TABLE app_settings (

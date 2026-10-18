@@ -3,7 +3,7 @@ const pool = require('../config/db');
 
 const router = express.Router();
 
-// GET /api/health — confirma que el server está arriba y que llega a la base.
+// GET /api/health - confirma que el server esta arriba y que llega a la base.
 router.get('/', async (req, res) => {
     try {
         await pool.query('SELECT 1');
