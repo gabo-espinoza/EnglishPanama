@@ -80,7 +80,7 @@ async function listChangeRequests({ status } = {}) {
          JOIN staff_accounts t ON t.id = r.target_id
          ${clause}
          ORDER BY r.id DESC`,
-        []
+        params
     );
     return rows;
 }

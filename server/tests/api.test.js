@@ -181,3 +181,36 @@ test('helmet agrega cabeceras de seguridad', async () => {
     assert.ok(res.headers.get('x-content-type-options'));
     assert.ok(res.headers.get('x-dns-prefetch-control') !== undefined);
 });
+
+test('helmet agrega una politica de seguridad de contenido (CSP)', async () => {
+    const res = await fetch(`${baseUrl}/ranking`);
+    const csp = res.headers.get('content-security-policy');
+    assert.ok(csp, 'debe venir la cabecera Content-Security-Policy');
+    assert.match(csp, /default-src 'self'/, 'debe restringir las fuentes por defecto');
+});
+
+test('inyeccion SQL en el login: no entra ni rompe la base (400/401)', async (t) => {
+    const payloads = [
+        "' OR '1'='1",
+        "admin'--",
+        "'; DROP TABLE users; --",
+        '" OR ""="',
+        "estudiante01' UNION SELECT 1,2,3 --"
+    ];
+    for (const username of payloads) {
+        const res = await fetch(`${baseUrl}/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password: "' OR 1=1 --" })
+        });
+        // 400/401 esperado; 429 solo si el limite de intentos ya se disparo en esta corrida.
+        assert.ok([400, 401, 429].includes(res.status), `payload ${username} -> ${res.status}`);
+        assert.ok(!(await res.json()).token, 'una inyeccion no debe entregar sesion');
+    }
+
+    if (dbUp) {
+        // La tabla sigue existiendo y con datos: el payload no se ejecuto como SQL.
+        const [rows] = await pool.query('SELECT COUNT(*) AS n FROM users');
+        assert.ok(Number(rows[0].n) >= 1, 'la tabla users debe seguir existiendo');
+    }
+});

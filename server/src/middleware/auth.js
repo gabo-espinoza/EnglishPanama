@@ -19,6 +19,12 @@ async function requireAuth(req, res, next) {
         return res.status(401).json({ error: 'Token invalido o expirado.' });
     }
 
+    // El token de plataforma se firma sin `typ` (o con "user"). Cualquier otro `typ`
+    // se rechaza aqui: el reto de MFA ("mfa_pending") NO debe abrir rutas protegidas.
+    if (payload.typ && payload.typ !== 'user') {
+        return res.status(401).json({ error: 'Token invalido o expirado.' });
+    }
+
     try {
         const [rows] = await pool.query(
             'SELECT id, role, is_active, token_version FROM users WHERE id = ?',

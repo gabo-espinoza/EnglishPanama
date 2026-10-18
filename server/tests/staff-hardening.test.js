@@ -161,13 +161,16 @@ test('seed-demo-staff se niega a correr con NODE_ENV=production', () => {
     assert.match(out.stderr, /NODE_ENV=production/);
 });
 
+// El script carga server/.env por su cuenta y dotenv no pisa variables ya presentes,
+// asi que el caso "sin contrasena" se aisla pasando la cadena vacia: sin eso, el
+// DEMO_STAFF_PASSWORD real del .env haria que el proceso terminara en 0.
 test('seed-demo-staff exige DEMO_STAFF_PASSWORD de al menos 12 caracteres (sin valor por defecto)', () => {
-    const missing = runSeed({ NODE_ENV: 'development' });
-    assert.notStrictEqual(missing.status, 0);
+    const missing = runSeed({ NODE_ENV: 'development', DEMO_STAFF_PASSWORD: '' });
+    assert.notStrictEqual(missing.status, 0, 'missing DEMO_STAFF_PASSWORD should exit non-zero');
     assert.match(missing.stderr, /DEMO_STAFF_PASSWORD/);
 
     const short = runSeed({ NODE_ENV: 'development', DEMO_STAFF_PASSWORD: 'corta' });
-    assert.notStrictEqual(short.status, 0);
+    assert.notStrictEqual(short.status, 0, 'short DEMO_STAFF_PASSWORD should exit non-zero');
     assert.match(short.stderr, /DEMO_STAFF_PASSWORD/);
 });
 

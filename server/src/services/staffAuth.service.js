@@ -1,8 +1,8 @@
 ﻿// Autenticacion de las cuentas de gestion (personal).
 //
 // Login con contrasena + TOTP. Sesion corta (20 minutos) firmada con un secreto
-// distinto al de estudiantes/docentes (STAFF_JWT_SECRET). Tras 5 fallos la cuenta
-// se bloquea 15 minutos. Cada intento queda en auditoria.
+// distinto al de estudiantes/docentes (STAFF_JWT_SECRET). Tras 3 fallos la cuenta
+// se bloquea 10 segundos. Cada intento queda en auditoria.
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
@@ -54,16 +54,23 @@ function invalidCredentials() {
 }
 
 async function login({ username, password, totp: code, ip }) {
-    const [rows] = await pool.query('SELECT * FROM staff_accounts WHERE username = ?', [username]);
+    // El bloqueo lo decide MySQL con su propio reloj (locked_until > NOW()): asi la
+    // comprobacion no depende de la zona horaria en la que corra el servidor Node.
+    const [rows] = await pool.query(
+        'SELECT *, (locked_until > NOW()) AS is_locked FROM staff_accounts WHERE username = ?',
+        [username]
+    );
     const account = rows[0];
 
     if (!account) {
+        // Equaliza el tiempo de respuesta con una cuenta inexistente: sin esto, la
+        // ausencia de bcrypt.compare delata que el usuario no existe.
+        await timingSafeCheckStaff(password);
         await audit.record({ actorType: 'staff', action: 'staff.login', target: username, outcome: 'denied', ip });
         throw invalidCredentials();
     }
 
-    const locked = account.locked_until && new Date(account.locked_until) > new Date();
-    if (account.status !== 'active' || locked) {
+    if (account.status !== 'active' || Number(account.is_locked) === 1) {
         await audit.record({
             actorType: 'staff', actorId: account.id, actorRole: account.role,
             action: 'staff.login', target: account.username, outcome: 'denied', ip
@@ -87,9 +94,11 @@ async function login({ username, password, totp: code, ip }) {
     if (!passwordOk || !totpOk) {
         const attempts = account.failed_attempts + 1;
         if (attempts >= MAX_FAILED) {
+            // Bloquea 10 segundos y reinicia el contador: es la regla acordada para
+            // esta fase (3 intentos y espera de 10 s).
             await pool.query(
                 'UPDATE staff_accounts SET failed_attempts = 0, locked_until = DATE_ADD(NOW(), INTERVAL ? SECOND) WHERE id = ?',
-                [LOCK_MINUTES, account.id]
+                [LOCK_SECONDS, account.id]
             );
         } else {
             await pool.query('UPDATE staff_accounts SET failed_attempts = ? WHERE id = ?', [attempts, account.id]);

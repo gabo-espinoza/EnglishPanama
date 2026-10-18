@@ -16,6 +16,11 @@ CREATE TABLE users (
     password_hash VARCHAR(255) NOT NULL,
     is_active     TINYINT(1) NOT NULL DEFAULT 1 COMMENT 'Cuenta activa; la revalida requireAuth en cada peticion',
     token_version INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Cambiarla invalida los tokens ya emitidos (revocacion)',
+    failed_attempts       TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    locked_until          DATETIME NULL,
+    mfa_secret_enc        VARBINARY(255) NULL COMMENT 'Secreto TOTP activo, cifrado con AES-256-GCM (clave en env). NULL = MFA desactivado',
+    mfa_pending_enc       VARBINARY(255) NULL COMMENT 'Secreto TOTP en vinculacion, pendiente de confirmar con un codigo',
+    mfa_pending_expires_at DATETIME NULL,
     created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uq_users_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

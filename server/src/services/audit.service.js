@@ -15,8 +15,15 @@ function pad(value, length = 2) {
 
 // Fecha en UTC con milisegundos: el mismo texto que se guarda y que se hashea,
 // para que la verificacion de la cadena sea reproducible.
-function formatUtc(date) {
-    const d = date instanceof Date ? date : new Date(date);
+//
+// Si ya llega como texto (verify() lo lee de la base) se devuelve tal cual: es la
+// forma canonica que se hasho al escribir. Convertirlo de nuevo con new Date() lo
+// interpretaria como hora local y, en maquinas con zona horaria distinta de UTC,
+// rehashearia una fecha desplazada y marcaria la cadena como rota sin manipulation.
+const UTC_TEXT = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}$/;
+function formatUtc(value) {
+    if (typeof value === 'string' && UTC_TEXT.test(value)) return value;
+    const d = value instanceof Date ? value : new Date(value);
     return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`
         + ` ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`
         + `.${pad(d.getUTCMilliseconds(), 3)}`;
