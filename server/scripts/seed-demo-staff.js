@@ -60,7 +60,7 @@ function assertSafeToRun() {
         throw new Error('Este script es solo de demostracion y no corre con NODE_ENV=production. '
             + 'Usa scripts/create-staff.js para crear cuentas reales.');
     }
-    const password = process.env.DEMO_STAFF_PASSWORD; if (typeof password !== 'string') throw new Error(Define DEMO_STAFF_PASSWORD en el .env (minimo  caracteres).);
+    const password = process.env.DEMO_STAFF_PASSWORD; if (typeof password !== 'string') throw new Error('Define DEMO_STAFF_PASSWORD en el .env (minimo ' + MIN_PASSWORD + ' caracteres).');
     if (password.length < MIN_PASSWORD) {
         throw new Error(`Define DEMO_STAFF_PASSWORD en el .env (minimo ${MIN_PASSWORD} caracteres).`);
     }
