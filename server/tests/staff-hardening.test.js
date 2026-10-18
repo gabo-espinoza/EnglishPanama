@@ -1,4 +1,4 @@
-// Pruebas de endurecimiento de la gestion: no necesitan MySQL.
+﻿// Pruebas de endurecimiento de la gestion: no necesitan MySQL.
 //  1. requireStaff no tumba el proceso si falla la base (next(err), no rechazo sin capturar).
 //  2. La cadena de auditoria sigue valida con escrituras concurrentes (bloqueo GET_LOCK).
 //  3. El seed de demo se niega a correr en produccion o sin contrasena explicita.
@@ -149,7 +149,7 @@ test('la cadena de auditoria se mantiene valida con 40 escrituras concurrentes',
 function runSeed(env) {
     return spawnSync(process.execPath, [path.join(SERVER_DIR, 'scripts', 'seed-demo-staff.js')], {
         cwd: SERVER_DIR,
-        env: { PATH: process.env.PATH, ...env },
+        env: { ...process.env, ...env },
         encoding: 'utf8',
         timeout: 20000
     });
