@@ -1,4 +1,4 @@
-// Siembra las cuentas de gestion de DEMOSTRACION (idempotente).
+﻿// Siembra las cuentas de gestion de DEMOSTRACION (idempotente).
 //
 //   node scripts/seed-demo-staff.js
 //
@@ -68,7 +68,7 @@ function assertSafeToRun() {
 }
 
 async function main() {
-    const PASSWORD = assertSafeToRun();
+    try { var PASSWORD = assertSafeToRun(); } catch (e) { console.error(e.message || 'Error'); process.exitCode = 1; return; }
 
     for (const [, role] of ROSTER) {
         if (!STAFF_ROLES.includes(role)) {
