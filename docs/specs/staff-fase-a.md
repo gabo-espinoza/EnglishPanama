@@ -1,6 +1,6 @@
 # Spec — Cuentas de gestión, Fase A (base de personal, MFA y auditoría)
 
-Estado: **ajustado a la implementación del PR [#2](https://github.com/gabo-espinoza/EnglishPanama/pull/2)** (Daniel, `feat/backend-mvp`), más los arreglos de `fix/staff-hardening`. Origen: diagrama "English Panamá" (usuarios, roles de gestión, arquitectura, modularidad y seguridad).
+Estado: **ajustado a la implementación del PR [#5](https://github.com/gabo-espinoza/EnglishPanama/pull/5)** (Daniel, `feat/security-phase2`). Ese PR incluye todo el [#2](https://github.com/gabo-espinoza/EnglishPanama/pull/2) (backend MVP y base de personal) y los cuatro arreglos de endurecimiento que antes vivían en el [#3](https://github.com/gabo-espinoza/EnglishPanama/pull/3), cerrado por obsoleto. Origen: diagrama "English Panamá" (usuarios, roles de gestión, arquitectura, modularidad y seguridad).
 
 ## 1. Decisiones ya tomadas
 
@@ -14,9 +14,9 @@ Estado: **ajustado a la implementación del PR [#2](https://github.com/gabo-espi
 
 | Rol (`staff_role`) | Área (`aud` del token) | Función | Estado |
 |---|---|---|---|
-| `access_manager` (Gestor de usuarios y accesos) | `access` | Listar cuentas de personal, solicitar suspensión o activación, crear cuentas de docente | Implementado (PR #2) |
-| `auditor` | `audit` | Consultar y verificar la auditoría, decidir solicitudes de cambio de cuentas | Implementado (PR #2) |
-| `analyst` | `analytics` | Métricas agregadas y anónimas (`GET /staff/analytics/dashboard`) | Implementado (PR #2) |
+| `access_manager` (Gestor de usuarios y accesos) | `access` | Listar cuentas de personal, solicitar suspensión o activación, crear cuentas de docente | Implementado (PR #2, endurecido en #5) |
+| `auditor` | `audit` | Consultar y verificar la auditoría, decidir solicitudes de cambio de cuentas | Implementado (PR #2, endurecido en #5) |
+| `analyst` | `analytics` | Métricas agregadas y anónimas (`GET /staff/analytics/dashboard`) | Implementado (PR #2, endurecido en #5) |
 | `content_manager` | `content` | Crear cursos, lecciones, ejercicios y audios (`/courses`, `/media/upload`, `/quizzes`); corregir reportes escalados | **Fase B**: solo existe la cuenta |
 | `content_reviewer` | `content` | Aprobar o rechazar lo que propone el gestor; nunca lo propio | **Fase B**: solo existe la cuenta |
 | `game_manager` | `game` | Reglas de puntos, niveles y reto diario; ocultar alias del ranking | **Fase C**: solo existe la cuenta |
@@ -33,7 +33,7 @@ Qué cambia respecto al diagrama original:
 
 ## 3. Alcance por fase
 
-**Fase A (implementada en el PR #2, con arreglos en `fix/staff-hardening`):**
+**Fase A (implementada en el PR #2 y endurecida en el PR #5):**
 
 - Tablas de personal, roles y estado de cuenta.
 - Scripts de creación de cuentas de gestión (solo servidor).
@@ -50,14 +50,30 @@ Qué cambia respecto al diagrama original:
 
 ### Endurecimiento posterior a la revisión del PR #2
 
-Cuatro correcciones sobre la implementación inicial (`fix/staff-hardening`):
+Cuatro correcciones sobre la implementación inicial (originalmente PR #3, hoy dentro del PR #5):
 
 1. `requireStaff` pasa los fallos de la base a `next(err)`. En Express 4 un rechazo sin capturar podía tumbar el proceso.
 2. La escritura de auditoría se serializa con `GET_LOCK`. Sin eso, dos peticiones simultáneas tomaban el mismo `prev_hash` y `verify()` reportaba una rotura falsa. No usa `FOR UPDATE` porque `audit_writer` no tiene `UPDATE`.
 3. `seed-demo-staff.js` ya no tiene contraseña por defecto, exige `DEMO_STAFF_PASSWORD` de al menos 12 caracteres, se niega a correr con `NODE_ENV=production` y no modifica el esquema.
 4. En producción las cuatro variables `AUDIT_DB_*` son obligatorias y el servidor no arranca sin ellas, para que la auditoría nunca caiga en silencio a la base principal.
 
-Pendientes conocidos, fuera de esos cuatro: la auditoría nunca lanza (una acción sensible puede ejecutarse sin quedar registrada si la base de auditoría cae), no se corre bcrypt cuando el usuario no existe (diferencia de tiempo de respuesta) y un código TOTP puede reutilizarse dentro de su ventana.
+### Fase 2 (PR #5)
+
+El PR #5 construye sobre lo anterior y agrega:
+
+- **MFA de plataforma** para estudiantes y docentes, en dos pasos: un reto corto (5 minutos, `typ: "mfa_pending"`, rechazado en rutas protegidas) y luego el código TOTP. El secreto se cifra con AES-256-GCM.
+- **Bloqueo unificado de 3 intentos y 10 segundos**, para plataforma y gestión, decidido en SQL (`locked_until > NOW()`) para no depender de la zona horaria de Node.
+- **Tiempo de respuesta igualado** cuando el usuario no existe (`timingSafeCheck*`), para no delatar qué cuentas existen.
+- Corrección del filtro de `change-requests` (enviaba `[]` en vez de los parámetros).
+- Corrección de `verify()`: una fecha ya canónica no se reinterpreta como hora local, que marcaba la cadena como rota sin manipulación en servidores con otra zona horaria.
+- Seeds de demo de estudiante y de contenido (módulos, actividades, preguntas y reto diario), que también se niegan a correr con `NODE_ENV=production`.
+- 55 pruebas, según el PR (no verificadas contra MySQL en la revisión de este documento).
+
+Pendientes conocidos:
+
+- **Bloqueo más débil para el personal.** El PR #5 pasó de 5 intentos y 15 minutos a 3 intentos y 10 segundos. Es la regla del equipo, pero para cuentas de gestión es mucho más laxa, y permite bloquear a cualquiera cuyo usuario se conozca. Se recomienda un bloqueo de varios minutos para el personal.
+- La auditoría nunca lanza: una acción sensible puede ejecutarse sin quedar registrada si la base de auditoría cae.
+- Un código TOTP puede reutilizarse dentro de su ventana.
 
 ## 4. Modelo de datos
 
@@ -128,7 +144,7 @@ Login separado del de estudiantes y docentes: `POST /api/staff/auth/login`.
 
 1. Valida `username`, `password` (bcrypt) y `totp` (ventana ±1 paso de 30 s).
 2. Cuenta `suspended` o con `locked_until` vigente → 403/429 con el mismo mensaje genérico que una credencial inválida.
-3. 5 fallos seguidos → bloqueo de 15 minutos. Cada intento (ok o fallido) se registra en auditoría.
+3. 3 fallos seguidos → bloqueo de 10 segundos, decidido por el reloj de MySQL (regla del PR #5; ver pendientes sobre su debilidad). Cada intento (ok o fallido) se registra en auditoría. Si el usuario no existe se hace igual una comparación bcrypt para igualar el tiempo de respuesta.
 4. Emite un JWT con `{ sub, typ: "staff", role, aud: <área> }`, **duración 20 minutos**, sin refresh: al expirar se vuelve a autenticar con contraseña y TOTP.
 5. El secreto del token de personal es distinto al de usuarios (`STAFF_JWT_SECRET`). Un token de estudiante o docente no sirve en `/api/staff/*` y viceversa.
 
@@ -197,7 +213,7 @@ Variables nuevas en `env.example`: `STAFF_JWT_SECRET`, `STAFF_MFA_KEY` (32 bytes
 
 ## 9. Pruebas
 
-- Login: credenciales inválidas, TOTP inválido, cuenta suspendida y bloqueo tras 5 fallos dan el mismo mensaje.
+- Login: credenciales inválidas, TOTP inválido, cuenta suspendida y bloqueo tras 3 fallos dan el mismo mensaje.
 - Token de estudiante o docente rechazado en `/api/staff/*`; token de personal rechazado en rutas de estudiante y docente.
 - Token de un área rechazado en otra área; rol incorrecto dentro de la misma área rechazado.
 - Suspensión: con el token aún vigente, la siguiente petición da 403.
@@ -224,6 +240,7 @@ Resueltas:
 
 Abiertas:
 
-1. **Base de auditoría:** hoy es un schema aparte en el mismo servidor MySQL. ¿Se mueve a otra VM? Es más fuerte pero exige coordinar con infraestructura.
-2. **Auditoría que no lanza:** ¿las acciones sensibles (decidir solicitudes, crear docentes) deben fallar si no se puede registrar la auditoría?
-3. **Foro y comentarios:** el diagrama los menciona en el Gestor de juego. ¿Se construyen o solo se documentan como fase futura?
+1. **Duración del bloqueo del personal:** hoy 3 intentos y 10 segundos. ¿Se sube a varios minutos solo para cuentas de gestión?
+2. **Base de auditoría:** hoy es un schema aparte en el mismo servidor MySQL. ¿Se mueve a otra VM? Es más fuerte pero exige coordinar con infraestructura.
+3. **Auditoría que no lanza:** ¿las acciones sensibles (decidir solicitudes, crear docentes) deben fallar si no se puede registrar la auditoría?
+4. **Foro y comentarios:** el diagrama los menciona en el Gestor de juego. ¿Se construyen o solo se documentan como fase futura?
