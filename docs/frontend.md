@@ -68,11 +68,23 @@ Envuelve las pantallas de autenticación: fondo oscuro con degradado turquesa y 
 - Redirige a `/teacher` o `/student` según el rol.
 - Se retiró el checkbox "Recordarme" y el enlace "¿Olvidaste tu contraseña?" porque no tenían funcionalidad conectada.
 - **MFA (segundo factor):** si la cuenta tiene MFA activo, el backend no devuelve sesión sino `{ mfaRequired: true, mfaToken }`. El Login pasa entonces a un segundo paso donde se pide el código de 6 dígitos del autenticador y se envía a `POST /api/auth/login/mfa`. El reto dura 5 minutos; si vence, se vuelve al primer paso. Las cuentas sin MFA entran directo, como antes.
-- Pendiente: pantalla para vincular el autenticador (`POST /api/auth/mfa/setup` y `/mfa/confirm`).
+- **MFA obligatorio para docentes:** si el docente aún no vinculó un autenticador, el backend no entrega sesión sino `{ mfaSetupRequired: true, enrollToken }`. El Login lo manda a `/mfa/setup` (ver abajo). Los estudiantes siguen con MFA opcional.
+- Si otra pantalla devuelve al usuario al login (por ejemplo, un token vencido), deja un aviso en `location.state.notice` y el Login lo muestra.
 
 ### Registro (`/register`)
 - Registro de estudiante con **alias**, contraseña y código de clase del docente. El alias es lo único que ven los demás (ranking), por eso el formulario pide no usar el nombre real. Reglas del backend: de 3 a 30 caracteres con letras, números, punto, guion o guion bajo.
 - Usa las mismas clases (`auth-input`, `auth-button`) que el Login para verse idéntico.
+
+### Vinculación del autenticador (`/mfa/setup`)
+- Llega aquí el docente en su primer inicio de sesión (el login le pasa el `enrollToken` en el estado del router, **en memoria**, nunca en `localStorage`). También sirve para un usuario con sesión normal que quiera activar el MFA.
+- Pasos en pantalla: instalar una app de autenticación gratis (Google Authenticator, Microsoft Authenticator, Aegis o 2FAS), escanear el **QR** (se genera en el cliente con la librería `qrcode` a partir del `otpauthUri` que devuelve `POST /api/auth/mfa/setup`), y escribir el código de 6 dígitos. También muestra la clave de respaldo para quien no pueda escanear.
+- `POST /api/auth/mfa/confirm` con el primer código correcto activa el MFA y, con el token de vinculación, **entrega la sesión**: el docente entra directo a su panel.
+- Si la vinculación vence (10 minutos) aparece "Generar un código nuevo". Si el token de vinculación vence o se revoca (15 minutos), vuelve al login con un aviso.
+- El token de vinculación no abre ninguna otra ruta: sin él, `/mfa/setup` redirige al login.
+- Si un docente pierde el celular, el gestor de accesos le reinicia el MFA y vuelve a pasar por esta pantalla en su siguiente inicio de sesión.
+
+### Rutas
+`/login`, `/register`, `/mfa/setup`, y las protegidas `/student/*` y `/teacher/*` (`ProtectedRoute`). `/` redirige a `/login`.
 
 ## Pendiente
 - Vistas de estudiante (`pages/student`).

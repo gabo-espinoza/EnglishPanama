@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { login, loginMfa } from '../../api/auth';
 import { saveSession } from '../../api/session';
 import AuthBackground from '../../components/AuthBackground';
@@ -7,7 +7,9 @@ import AuthBackground from '../../components/AuthBackground';
 export default function Login() {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
-    const [error, setError] = useState('');
+    // Mensaje que deja otra pantalla al devolver al usuario al login (por ejemplo, un token vencido).
+    const location = useLocation();
+    const [error, setError] = useState(location.state?.notice || '');
     const [loading, setLoading] = useState(false);
     // Si la cuenta tiene MFA, el primer paso devuelve un reto (mfaToken) y no una sesion.
     const [mfaToken, setMfaToken] = useState(null);
@@ -31,6 +33,12 @@ export default function Login() {
             if (result.mfaRequired) {
                 setMfaToken(result.mfaToken);
                 setPassword('');
+                return;
+            }
+            // Docente sin autenticador: el MFA es obligatorio, asi que no hay sesion todavia.
+            // El token de vinculacion viaja en memoria (estado del router), no en localStorage.
+            if (result.mfaSetupRequired) {
+                navigate('/mfa/setup', { replace: true, state: { enrollToken: result.enrollToken } });
                 return;
             }
             finishLogin(result);
