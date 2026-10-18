@@ -1,4 +1,4 @@
-// Cuentas de gestion: listado, creacion de docentes y solicitudes de cambio con
+﻿// Cuentas de gestion: listado, creacion de docentes y solicitudes de cambio con
 // separacion de funciones (quien solicita no decide; solo el auditor decide).
 const crypto = require('crypto');
 const bcrypt = require('bcrypt');
