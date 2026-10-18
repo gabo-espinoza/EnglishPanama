@@ -22,10 +22,12 @@ Producción tiene hoy el esquema de `main`. `develop` agrega:
 
 | Cambio | Detalle | Archivo |
 |---|---|---|
-| 7 columnas nuevas en `users` | `is_active`, `token_version`, `failed_attempts`, `locked_until`, `mfa_secret_enc`, `mfa_pending_enc`, `mfa_pending_expires_at` | `server/database/migrations/prod-upgrade-users.sql` |
+| 7 columnas nuevas en `users` | `is_active`, `token_version`, `failed_attempts`, `locked_until`, `mfa_secret_enc`, `mfa_pending_enc`, `mfa_pending_expires_at` | `migrations/prod-upgrade-users.sql` |
 | 2 tablas nuevas | `staff_accounts`, `staff_change_requests` | `server/database/staff.sql` |
 | Base nueva `englishpanama_audit` | tabla `audit_log` (solo anexar, con cadena de hashes) | `server/database/audit.sql` |
-| Usuario nuevo `audit_writer` | solo `INSERT` y `SELECT` sobre `audit_log` | se crea a mano (paso 4) |
+| Usuario nuevo `audit_writer` | solo `INSERT` y `SELECT` sobre `audit_log` | se crea a mano (paso 5.3) |
+
+**Los tres primeros están reunidos en un único archivo, `server/database/migrations/prod-upgrade-all.sql`, que es lo que se ejecuta en producción** (paso 5).
 
 **Propiedades de la migración** (comprobadas, ver sección 12):
 
@@ -97,6 +99,25 @@ grep -rn "proxy_set_header\|X-Forwarded-For" /etc/nginx/sites-enabled/ /etc/ngin
 - MySQL debe escuchar en el puerto **3306**. La aplicación ignora la variable `DB_PORT` (siempre usa el puerto por defecto), así que otro puerto no funcionaría.
 - En el `.env` deben existir como mínimo `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` y `JWT_SECRET`.
 
+### 3.1 Resultado de la verificación previa (producción, confirmado)
+
+| Dato | Valor | Lectura |
+|---|---|---|
+| MySQL | 8.0.46 (Ubuntu 22.04), zona horaria `SYSTEM` = UTC | Misma versión mayor que las pruebas; la zona horaria es la esperada |
+| Puerto de MySQL | `10.0.0.243:3306` (solo escucha en la IP privada, no en `127.0.0.1`) | Correcto: la aplicación usa el puerto 3306. `sudo mysql` entra por el socket local |
+| Bases | `englishpanama` (no existe todavía `englishpanama_audit`) | Como se esperaba |
+| Usuarios de MySQL | `app_user@10.0.0.186`, `root@localhost`, `debian-sys-maint@localhost` | `10.0.0.186` es la IP de la VM-APP: de ahí sale el host de `audit_writer` |
+| Tabla `users` | `id, role, username, password_hash, created_at` | Es el esquema anterior: ninguna de las 7 columnas nuevas existe aún |
+| Disco VM-BD | 39 GB libres de 45 GB | Sobra para el respaldo |
+| VM-APP | IP `10.0.0.186`, Node v24.21.0, `pm2`: `api` en línea (18 días, 3 reinicios) | La API está sana |
+| `.env` de la VM-APP | `DB_HOST DB_NAME DB_PASSWORD DB_USER DEMO_MODE JWT_SECRET PORT` | Faltan las variables nuevas del paso 6 (`NODE_ENV`, `TRUST_PROXY`, `STAFF_*`, `AUDIT_DB_*`) |
+| nginx | la búsqueda de `proxy_set_header` / `X-Forwarded-For` en `sites-enabled` y `conf.d` **no encontró nada** | Pendiente: hay que ver la configuración efectiva (ver sección 10) |
+
+Notas:
+
+- El conteo de usuarios por rol no mostró filas. En modo no interactivo `mysql` no imprime nada cuando el resultado está vacío, así que la tabla `users` parece estar **vacía**. Confírmalo con `sudo mysql englishpanama -e "SELECT COUNT(*) FROM users;"`. Si está vacía, no hay cuentas que migrar y los docentes empiezan ya con el flujo nuevo.
+- La VM-APP corre Node 24 y el flujo de despliegue compila con Node 20. Las dependencias del servidor no tienen binarios dependientes de la versión de Node, y la API ya corre así hoy; no se espera ningún problema.
+
 ## 4. Respaldo
 
 **[VM-BD]**
@@ -114,43 +135,40 @@ Recomendado: copia el respaldo **fuera** de la VM (por ejemplo, con `scp` a tu P
 
 ## 5. Migración de la base de datos
 
-### 5.1 Llevar los archivos a la VM-BD
+### 5.1 Llevar el archivo a la VM-BD
 
-**[TU PC]** (dentro del clon del repositorio, con la rama que contiene estos archivos)
+Toda la migración está en **un solo archivo**: `server/database/migrations/prod-upgrade-all.sql`. Es la concatenación, sin cambios, de `prod-upgrade-users.sql`, `staff.sql` y `audit.sql`.
+
+**[TU PC]** (dentro del clon del repositorio, con la rama que contiene el archivo)
 
 ```bash
-# Si la VM-BD solo es accesible a través de la VM-APP, usa -J (salto por la VM-APP):
-ssh -J TU_USUARIO@150.136.50.253 TU_USUARIO@10.0.0.243 "mkdir -p ~/migraciones"
-scp -o ProxyJump=TU_USUARIO@150.136.50.253 \
-    server/database/migrations/prod-upgrade-users.sql \
-    server/database/staff.sql \
-    server/database/audit.sql \
-    TU_USUARIO@10.0.0.243:~/migraciones/
+scp server/database/migrations/prod-upgrade-all.sql TU_USUARIO@IP_VM_BD:~/migracion-produccion.sql
 ```
 
-Cambia `TU_USUARIO` por tu usuario de SSH. Si la VM-BD tiene IP pública o ya entras a ella de otra forma, usa tu método habitual.
+Usa tu método habitual para llegar a la VM-BD (si solo se entra a través de la VM-APP, agrega `-o ProxyJump=TU_USUARIO@150.136.50.253`).
 
-### 5.2 Aplicar las migraciones
+**Alternativa sin `scp`:** en la VM-BD ejecuta `cat > ~/migracion-produccion.sql`, pega el contenido del archivo y termina con `Ctrl+D`.
+
+**[VM-BD]** — comprobar que el archivo llegó completo:
+
+```bash
+wc -l ~/migracion-produccion.sql        # esperado: 177 líneas
+head -3 ~/migracion-produccion.sql
+```
+
+### 5.2 Aplicar la migración
 
 **[VM-BD]**
 
 ```bash
-cd ~/migraciones
-
-# a) Columnas nuevas de users (repetible)
-sudo mysql englishpanama < prod-upgrade-users.sql
-
-# b) Tablas de personal de gestión (CREATE TABLE IF NOT EXISTS, repetible)
-sudo mysql englishpanama < staff.sql
-
-# c) Base de auditoría
-sudo mysql -e "CREATE DATABASE IF NOT EXISTS englishpanama_audit CHARACTER SET utf8mb4;"
-sudo mysql englishpanama_audit < audit.sql
+sudo mysql < ~/migracion-produccion.sql && echo "MIGRACION OK"
 ```
+
+El archivo selecciona él mismo cada base (`USE`), así que no hay que indicarla en el comando. Crea la base `englishpanama_audit` si no existe. Es repetible: si se interrumpe, se puede correr de nuevo.
 
 ### 5.3 Usuario de auditoría (solo `INSERT` y `SELECT`)
 
-Reemplaza `IP_VM_APP` por la IP privada que te dio `hostname -I` en la VM-APP. **No uses `'%'`**: así solo la VM-APP puede conectarse con este usuario.
+El host es la IP privada de la VM-APP (`10.0.0.186`, la misma que usa `app_user`). **No uses `'%'`**: así solo la VM-APP puede conectarse con este usuario.
 
 **[VM-BD]**
 
@@ -161,8 +179,8 @@ echo "Clave de audit_writer (cópiala ahora): $AUDIT_PASS"
 
 # La clave viaja por stdin, no queda en la lista de procesos
 sudo mysql <<SQL
-CREATE USER IF NOT EXISTS 'audit_writer'@'IP_VM_APP' IDENTIFIED BY '${AUDIT_PASS}';
-GRANT INSERT, SELECT ON englishpanama_audit.audit_log TO 'audit_writer'@'IP_VM_APP';
+CREATE USER IF NOT EXISTS 'audit_writer'@'10.0.0.186' IDENTIFIED BY '${AUDIT_PASS}';
+GRANT INSERT, SELECT ON englishpanama_audit.audit_log TO 'audit_writer'@'10.0.0.186';
 FLUSH PRIVILEGES;
 SQL
 
@@ -186,9 +204,11 @@ sudo mysql englishpanama -e "SHOW TABLES LIKE 'staff%';"
 sudo mysql englishpanama_audit -e "SHOW TABLES;"
 
 # 4) El usuario de auditoría SOLO puede insertar y leer
-sudo mysql -e "SHOW GRANTS FOR 'audit_writer'@'IP_VM_APP';"
+sudo mysql -e "SHOW GRANTS FOR 'audit_writer'@'10.0.0.186';"
 #   esperado: GRANT USAGE ON *.* ... y GRANT SELECT, INSERT ON `englishpanama_audit`.`audit_log` ...
 ```
+
+Si la tabla `users` está vacía, la consulta 2 no imprime filas: es normal.
 
 ### Punto de control A — la aplicación actual debe seguir funcionando
 
@@ -317,7 +337,7 @@ Y con una cuenta `auditor`, `GET /api/staff/audit/verify` debe responder `{ "ok"
 
 ## 10. Riesgos conocidos
 
-**Límite de intentos y nginx (importante).** Los endpoints de autenticación permiten 20 intentos cada 15 minutos **por IP**. Detrás de nginx, sin `TRUST_PROXY=true`, la API ve a todos los usuarios con la IP de nginx: el límite se comparte entre todos y, tras 20 intentos de login de cualquier persona, **nadie más puede entrar** durante 15 minutos. Se comprobó: con `TRUST_PROXY=false` y 22 clientes distintos, el cliente 21 recibe `429`; con `TRUST_PROXY=true` los 22 pasan. Además, nginx debe enviar la cabecera `X-Forwarded-For` (`proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`); la verificación previa (sección 3) lo revisa.
+**Límite de intentos y nginx (importante).** Los endpoints de autenticación permiten 20 intentos cada 15 minutos **por IP**. Detrás de nginx, sin `TRUST_PROXY=true`, la API ve a todos los usuarios con la IP de nginx: el límite se comparte entre todos y, tras 20 intentos de login de cualquier persona, **nadie más puede entrar** durante 15 minutos. Se comprobó: con `TRUST_PROXY=false` y 22 clientes distintos, el cliente 21 recibe `429`; con `TRUST_PROXY=true` los 22 pasan. Además, nginx debe enviar la cabecera `X-Forwarded-For` (`proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`); en la verificación previa **no apareció ningún `proxy_set_header`** en `sites-enabled` ni `conf.d`. Falta ver la configuración efectiva de nginx, que puede estar en otro archivo (`sudo nginx -T`), y confirmar que la API se sirve realmente detrás de nginx.
 
 **Bloqueo por intentos.** Hoy es de 3 intentos y 10 segundos, también para el personal de gestión. Es más laxo que lo ideal para cuentas de gestión; está registrado como decisión pendiente en `docs/specs/staff-fase-a.md`.
 
@@ -351,7 +371,7 @@ El código se puede revertir sin tocar la base, porque la migración es compatib
 
 **Probado**, contra un **MySQL 8.0.46 real** con una base que replica el estado actual de producción (esquema de `main` con usuarios, docente, estudiantes, actividad y un intento de ejemplo):
 
-- `prod-upgrade-users.sql` corre sin errores, **dos veces seguidas**, y los datos existentes quedan intactos (`is_active = 1`, `token_version = 0`, sin MFA).
+- `prod-upgrade-all.sql` (el archivo único) corre sin errores, **dos veces seguidas** y sin indicar la base en el comando, y los datos existentes quedan intactos (`is_active = 1`, `token_version = 0`, sin MFA).
 - El esquema resultante es **idéntico** al de una instalación nueva con `schema.sql` + `staff.sql`: columnas, orden, tipos, valores por defecto, índices y claves foráneas. Solo difieren 4 comentarios de columna.
 - `staff.sql` y `audit.sql` corren sin errores; el usuario `audit_writer` con host restringido queda solo con `SELECT, INSERT`, y el motor rechaza `UPDATE` y `DELETE` (`ER_TABLEACCESS_DENIED_ERROR`).
 - El `INSERT` y el `SELECT` del código **anterior** funcionan sobre la base migrada.
@@ -366,8 +386,8 @@ El código se puede revertir sin tocar la base, porque la migración es compatib
 
 - [ ] Verificación previa pegada y revisada (sección 3)
 - [ ] Respaldo hecho y verificado, copia fuera de la VM (sección 4)
-- [ ] `prod-upgrade-users.sql`, `staff.sql` y `audit.sql` aplicados (sección 5.2)
-- [ ] Usuario `audit_writer` creado con la IP de la VM-APP, no con `%` (sección 5.3)
+- [ ] `prod-upgrade-all.sql` copiado a la VM-BD y aplicado (secciones 5.1 y 5.2)
+- [ ] Usuario `audit_writer` creado con la IP de la VM-APP (`10.0.0.186`), no con `%` (sección 5.3)
 - [ ] Verificaciones 5.4 correctas y **punto de control A** superado
 - [ ] `.env` actualizado: `NODE_ENV`, `TRUST_PROXY=true`, `STAFF_*`, `AUDIT_DB_*`; respaldo de `STAFF_MFA_KEY` fuera de la VM (sección 6)
 - [ ] PR pendientes en `develop`; merge `develop` → `main` y Actions en verde (sección 7)
