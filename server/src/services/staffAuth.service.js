@@ -1,4 +1,4 @@
-// Autenticacion de las cuentas de gestion (personal).
+﻿// Autenticacion de las cuentas de gestion (personal).
 //
 // Login con contrasena + TOTP. Sesion corta (20 minutos) firmada con un secreto
 // distinto al de estudiantes/docentes (STAFF_JWT_SECRET). Tras 5 fallos la cuenta
@@ -12,10 +12,20 @@ const mfaCrypto = require('../utils/mfaCrypto');
 const audit = require('./audit.service');
 const { areaForRole } = require('../config/staffRoles');
 
-const MAX_FAILED = 5;
-const LOCK_MINUTES = 15;
+const MAX_FAILED = 3;
+const LOCK_SECONDS = 10;
 const STAFF_SESSION_MINUTES = 20;
 
+
+let dummyHashStaff = null;
+async function timingSafeCheckStaff(password) {
+    if (!dummyHashStaff) {
+        dummyHashStaff = await bcrypt.hash('english-panama-timing-equalizer-staff', 10);
+    }
+    if (typeof password === 'string' && password.length > 0) {
+        await bcrypt.compare(password, dummyHashStaff);
+    }
+}
 function staffSecret() {
     const secret = process.env.STAFF_JWT_SECRET;
     if (!secret) throw new Error('Falta STAFF_JWT_SECRET en el entorno.');
@@ -78,7 +88,7 @@ async function login({ username, password, totp: code, ip }) {
         const attempts = account.failed_attempts + 1;
         if (attempts >= MAX_FAILED) {
             await pool.query(
-                'UPDATE staff_accounts SET failed_attempts = 0, locked_until = DATE_ADD(NOW(), INTERVAL ? MINUTE) WHERE id = ?',
+                'UPDATE staff_accounts SET failed_attempts = 0, locked_until = DATE_ADD(NOW(), INTERVAL ? SECOND) WHERE id = ?',
                 [LOCK_MINUTES, account.id]
             );
         } else {
