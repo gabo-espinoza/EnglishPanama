@@ -1,4 +1,4 @@
-const bcrypt = require('bcrypt');
+﻿const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
 
@@ -18,6 +18,19 @@ function generateClassCode() {
         code += CLASS_CODE_CHARS[Math.floor(Math.random() * CLASS_CODE_CHARS.length)];
     }
     return code;
+}
+
+const PLATFORM_LOCK_SECONDS = 10;
+const PLATFORM_MAX_FAILED = 3;
+
+let dummyHashPlatform = null;
+async function timingSafeCheckPlatform(password) {
+    if (!dummyHashPlatform) {
+        dummyHashPlatform = await bcrypt.hash('english-panama-platform-equalizer', 10);
+    }
+    if (typeof password === 'string' && password.length > 0) {
+        await bcrypt.compare(password, dummyHashPlatform);
+    }
 }
 
 // Sesion de usuario de plataforma (estudiante/docente): 2 horas.
@@ -178,7 +191,7 @@ async function login({ username, password }) {
     }
 
     const [rows] = await pool.query(
-        'SELECT id, role, password_hash, is_active, token_version FROM users WHERE username = ?',
+        'SELECT id, role, password_hash, is_active, token_version, failed_attempts, locked_until FROM users WHERE username = ?',
         [username]
     );
     if (rows.length === 0) {
