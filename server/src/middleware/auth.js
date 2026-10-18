@@ -4,7 +4,7 @@ const pool = require('../config/db');
 // Zero trust: ademas de verificar la firma del JWT, en CADA peticion se revalida
 // la cuenta contra la base. Si la cuenta no existe, esta desactivada o su version
 // de token cambio, el token deja de servir aunque no haya expirado.
-async function requireAuth(req, res, next) {
+async function authenticate(req, res, next, { allowEnroll }) {
     const authHeader = req.headers.authorization || '';
     const [scheme, token] = authHeader.split(' ');
 
@@ -21,7 +21,9 @@ async function requireAuth(req, res, next) {
 
     // El token de plataforma se firma sin `typ` (o con "user"). Cualquier otro `typ`
     // se rechaza aqui: el reto de MFA ("mfa_pending") NO debe abrir rutas protegidas.
-    if (payload.typ && payload.typ !== 'user') {
+    // El token de vinculacion ("mfa_enroll") solo se acepta donde se pide expresamente.
+    const isEnroll = payload.typ === 'mfa_enroll';
+    if (payload.typ && payload.typ !== 'user' && !(allowEnroll && isEnroll)) {
         return res.status(401).json({ error: 'Token invalido o expirado.' });
     }
 
@@ -42,10 +44,22 @@ async function requireAuth(req, res, next) {
 
         // El rol se toma de la base, no del token: si cambio, manda la base.
         req.user = { id: user.id, role: user.role };
+        req.enrollOnly = isEnroll;
         return next();
     } catch (err) {
         return next(err);
     }
+}
+
+// Sesion normal: rechaza el reto de MFA y el token de vinculacion.
+function requireAuth(req, res, next) {
+    return authenticate(req, res, next, { allowEnroll: false });
+}
+
+// Solo para /mfa/setup y /mfa/confirm: acepta ademas el token de vinculacion que
+// reciben los docentes (MFA obligatorio). `req.enrollOnly` indica cual de los dos llego.
+function requireAuthOrEnroll(req, res, next) {
+    return authenticate(req, res, next, { allowEnroll: true });
 }
 
 // Se usa despues de requireAuth: requireRole('teacher'), requireRole('student').
@@ -58,4 +72,4 @@ function requireRole(role) {
     };
 }
 
-module.exports = { requireAuth, requireRole };
+module.exports = { requireAuth, requireAuthOrEnroll, requireRole };

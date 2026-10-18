@@ -1,6 +1,6 @@
 const express = require('express');
 const authController = require('../controllers/auth.controller');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuthOrEnroll } = require('../middleware/auth');
 const { authLimiter } = require('../middleware/rateLimiter');
 
 const router = express.Router();
@@ -16,9 +16,10 @@ router.post('/register/student', authLimiter, authController.registerStudent);
 router.post('/login', authLimiter, authController.login);
 router.post('/login/mfa', authLimiter, authController.loginMfa);
 
-// Vinculacion del autenticador (requiere sesion): generar secreto + QR y confirmar
-// con un codigo antes de que el MFA quede activo.
-router.post('/mfa/setup', authLimiter, requireAuth, authController.setupMfa);
-router.post('/mfa/confirm', authLimiter, requireAuth, authController.confirmMfa);
+// Vinculacion del autenticador: generar secreto + QR y confirmar con un codigo antes
+// de que el MFA quede activo. Acepta la sesion normal (MFA opcional) o el token de
+// vinculacion que reciben los docentes en su primer inicio de sesion (MFA obligatorio).
+router.post('/mfa/setup', authLimiter, requireAuthOrEnroll, authController.setupMfa);
+router.post('/mfa/confirm', authLimiter, requireAuthOrEnroll, authController.confirmMfa);
 
 module.exports = router;

@@ -41,7 +41,7 @@ async function loginMfa(req, res, next) {
 // POST /api/auth/mfa/setup  (autenticado) - genera el secreto y el URI otpauth
 async function setupMfa(req, res, next) {
     try {
-        const result = await authService.setupMfa({ userId: req.user.id, totp: (req.body || {}).totp });
+        const result = await authService.setupMfa({ userId: req.user.id, totp: (req.body || {}).totp, enrollOnly: Boolean(req.enrollOnly) });
         res.json(result);
     } catch (err) {
         next(err);
@@ -51,7 +51,7 @@ async function setupMfa(req, res, next) {
 // POST /api/auth/mfa/confirm  (autenticado) - confirma el codigo y activa el MFA
 async function confirmMfa(req, res, next) {
     try {
-        const result = await authService.confirmMfa({ userId: req.user.id, totp: (req.body || {}).totp });
+        const result = await authService.confirmMfa({ userId: req.user.id, totp: (req.body || {}).totp, enrollOnly: Boolean(req.enrollOnly) });
         res.json(result);
     } catch (err) {
         next(err);

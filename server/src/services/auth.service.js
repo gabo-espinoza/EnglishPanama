@@ -49,6 +49,13 @@ const MFA_CHALLENGE_MINUTES = 5;
 // Tiempo que vale un secreto recien generado para vincular el autenticador.
 const MFA_ENROLL_MINUTES = 10;
 
+// El MFA es obligatorio para estos roles. Un docente sin autenticador vinculado NO
+// recibe sesion: recibe un token de vinculacion que solo abre /mfa/setup y /mfa/confirm.
+// (Estudiantes: el MFA sigue siendo opcional.)
+const MFA_REQUIRED_ROLES = ['teacher'];
+const MFA_ENROLL_TYP = 'mfa_enroll';
+const MFA_ENROLL_SESSION_MINUTES = 15;
+
 function signToken(user) {
     return jwt.sign(
         { id: user.id, role: user.role, tv: user.token_version || 0 },
@@ -65,6 +72,25 @@ function signMfaChallenge(user) {
         process.env.JWT_SECRET,
         { expiresIn: `${MFA_CHALLENGE_MINUTES}m` }
     );
+}
+
+// Token de vinculacion obligatoria: identifica al usuario ya validado por contrasena,
+// pero requireAuth lo rechaza (typ distinto de "user"): solo sirve para vincular el
+// autenticador. Al confirmar el primer codigo, el servidor entrega la sesion real.
+function signEnrollToken(user) {
+    return jwt.sign(
+        { id: user.id, typ: MFA_ENROLL_TYP, tv: user.token_version || 0 },
+        process.env.JWT_SECRET,
+        { expiresIn: `${MFA_ENROLL_SESSION_MINUTES}m` }
+    );
+}
+
+function enrollmentRequired(user) {
+    return {
+        mfaSetupRequired: true,
+        enrollToken: signEnrollToken(user),
+        expiresIn: MFA_ENROLL_SESSION_MINUTES * 60
+    };
 }
 
 // Columnas que necesita el login y la verificacion del segundo factor.
@@ -176,7 +202,8 @@ async function registerTeacher({ username, password, displayName }) {
         }
 
         await connection.commit();
-        return { token: signToken({ id: userId, role: 'teacher' }), classCode };
+        // El docente nuevo no recibe sesion: debe vincular el autenticador primero.
+        return { ...enrollmentRequired({ id: userId, token_version: 0 }), classCode };
     } catch (err) {
         await connection.rollback();
         throw err;
@@ -288,8 +315,16 @@ async function login({ username, password }) {
         };
     }
 
-    // Sin MFA: se limpia el bloqueo previo y se entrega la sesion normal.
+    // Sin MFA: se limpia el bloqueo previo.
     await clearLock(user);
+
+    // MFA obligatorio (docentes): sin autenticador vinculado no hay sesion; se devuelve
+    // un token de vinculacion para escanear el codigo en el primer inicio de sesion.
+    if (MFA_REQUIRED_ROLES.includes(user.role)) {
+        return enrollmentRequired(user);
+    }
+
+    // Rol con MFA opcional y sin MFA: se entrega la sesion normal.
     return { token: signToken(user), role: user.role };
 }
 
@@ -338,7 +373,7 @@ async function verifyMfa({ mfaToken, totp: code }) {
 
 // Paso 1 de la vinculacion: genera un secreto y devuelve el URI otpauth para que el
 // usuario lo escanee. El secreto queda PENDIENTE: el MFA no se activa hasta confirmar.
-async function setupMfa({ userId, totp: code }) {
+async function setupMfa({ userId, totp: code, enrollOnly = false }) {
     const [rows] = await pool.query(
         'SELECT id, username, is_active, mfa_secret_enc FROM users WHERE id = ?',
         [userId]
@@ -346,6 +381,12 @@ async function setupMfa({ userId, totp: code }) {
     const user = rows[0];
     if (!user || !user.is_active) {
         throw new AuthError('La cuenta no esta disponible.', 401);
+    }
+
+    // Un token de vinculacion solo sirve mientras la cuenta NO tiene MFA: no puede
+    // reemplazar un autenticador ya activo.
+    if (enrollOnly && user.mfa_secret_enc) {
+        throw new AuthError('La cuenta ya tiene un autenticador vinculado.', 409);
     }
 
     // Si ya hay un segundo factor activo, para volver a vincular hay que demostrar
@@ -369,12 +410,15 @@ async function setupMfa({ userId, totp: code }) {
 // Paso 2 de la vinculacion: si el codigo coincide con el secreto pendiente, el MFA
 // queda activo para esa cuenta. Hasta este punto la cuenta sigue entrando con solo
 // contrasena.
-async function confirmMfa({ userId, totp: code }) {
+async function confirmMfa({ userId, totp: code, enrollOnly = false }) {
     const [rows] = await pool.query(
-        'SELECT id, mfa_pending_enc, (mfa_pending_expires_at > NOW()) AS pending_valid FROM users WHERE id = ?',
+        'SELECT id, role, token_version, mfa_secret_enc, mfa_pending_enc, (mfa_pending_expires_at > NOW()) AS pending_valid FROM users WHERE id = ?',
         [userId]
     );
     const user = rows[0];
+    if (enrollOnly && user && user.mfa_secret_enc) {
+        throw new AuthError('La cuenta ya tiene un autenticador vinculado.', 409);
+    }
     if (!user || !user.mfa_pending_enc) {
         throw new AuthError('No hay una vinculacion en curso.', 400);
     }
@@ -390,6 +434,12 @@ async function confirmMfa({ userId, totp: code }) {
         'UPDATE users SET mfa_secret_enc = mfa_pending_enc, mfa_pending_enc = NULL, mfa_pending_expires_at = NULL WHERE id = ?',
         [user.id]
     );
+
+    // Vinculacion obligatoria: el primer codigo correcto completa tambien el inicio de
+    // sesion, para que el docente no tenga que volver a escribir sus datos.
+    if (enrollOnly) {
+        return { mfaEnabled: true, token: signToken(user), role: user.role };
+    }
     return { mfaEnabled: true };
 }
 
@@ -401,5 +451,7 @@ module.exports = {
     setupMfa,
     confirmMfa,
     AuthError,
-    MFA_CHALLENGE_TYP
+    MFA_CHALLENGE_TYP,
+    MFA_ENROLL_TYP,
+    MFA_REQUIRED_ROLES
 };

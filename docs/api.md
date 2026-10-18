@@ -55,9 +55,10 @@ Codigos usados: `400` (datos invalidos), `401` (sin token o token invalido),
 { "username": "string", "password": "string", "displayName": "string" }
 ```
 
-**Respuesta 201:**
+**Respuesta 201:** el MFA es obligatorio para docentes, asi que el registro **no entrega sesion**:
+entrega un token de vinculacion (ver "MFA de plataforma" mas abajo).
 ```json
-{ "token": "jwt", "classCode": "ABC123" }
+{ "mfaSetupRequired": true, "enrollToken": "jwt", "expiresIn": 900, "classCode": "ABC123" }
 ```
 
 ### `POST /auth/register/student`
@@ -79,14 +80,70 @@ Codigos usados: `400` (datos invalidos), `401` (sin token o token invalido),
 { "username": "string", "password": "string" }
 ```
 
-**Respuesta 200:**
-```json
-{ "token": "jwt", "role": "student" }
-```
+**Respuesta 200** (tres casos, segun la cuenta):
+
+1. **Sin MFA y rol con MFA opcional (estudiante):** la sesion normal.
+   ```json
+   { "token": "jwt", "role": "student" }
+   ```
+2. **Con MFA activo (estudiante o docente):** no hay sesion todavia, solo un reto de 5 minutos para el
+   segundo paso (`POST /auth/login/mfa`).
+   ```json
+   { "mfaRequired": true, "mfaToken": "jwt", "expiresIn": 300 }
+   ```
+3. **Docente sin MFA vinculado (MFA obligatorio):** no hay sesion; se entrega un token de vinculacion
+   de 15 minutos que solo sirve en `POST /auth/mfa/setup` y `POST /auth/mfa/confirm`.
+   ```json
+   { "mfaSetupRequired": true, "enrollToken": "jwt", "expiresIn": 900 }
+   ```
 
 *Validaciones:* el `username` admite entre 3 y 30 caracteres (letras, numeros,
 punto, guion o guion bajo) y la contrasena entre 4 y 72 caracteres.
 `login` y `register` tienen limite de intentos (ver `docs/security.md`).
+
+### MFA de plataforma (implementado)
+
+Segundo factor **TOTP** (RFC 6238): codigo de 6 digitos que cambia cada 30 segundos, generado por una
+app de autenticacion (Google Authenticator, Microsoft Authenticator, Aegis, 2FAS, FreeOTP...). Es
+**opcional para estudiantes** y **obligatorio para docentes**. Si un docente pierde el celular, el
+gestor de accesos le reinicia el MFA (`POST /staff/teachers/:id/reset-mfa`) y debe vincular uno nuevo.
+
+Un codigo incorrecto cuenta para el bloqueo de 3 intentos / 10 segundos. Estas rutas tienen el limite
+de intentos de autenticacion.
+
+#### `POST /auth/login/mfa` - publico
+
+Segundo paso del login. Body `{ "mfaToken": "jwt", "totp": "123456" }`.
+
+**Respuesta 200:** `{ "token": "jwt", "role": "teacher" }`.
+**Errores 401:** reto vencido o invalido (hay que volver a iniciar sesion), cuenta revocada o codigo incorrecto.
+
+#### `POST /auth/mfa/setup` - sesion normal **o** token de vinculacion
+
+Genera un secreto nuevo y lo deja **pendiente** (vale 10 minutos). El cliente debe mostrar `otpauthUri`
+como codigo QR y, de respaldo, el secreto en texto. Body `{}`; si la cuenta ya tenia MFA activo, hay que
+mandar `{ "totp": "codigo actual" }` para volver a vincular.
+
+**Respuesta 200:**
+```json
+{ "otpauthUri": "otpauth://totp/English%20Panama:profe1?secret=ABCD...&issuer=English%20Panama&algorithm=SHA1&digits=6&period=30", "expiresIn": 600 }
+```
+**Error 409** (solo con token de vinculacion): la cuenta ya tiene un autenticador vinculado.
+
+#### `POST /auth/mfa/confirm` - sesion normal **o** token de vinculacion
+
+Body `{ "totp": "123456" }`. Si el codigo coincide con el secreto pendiente, el MFA queda activo.
+
+**Respuesta 200:**
+- Con **sesion normal:** `{ "mfaEnabled": true }`.
+- Con **token de vinculacion** (docente en su primer inicio de sesion): ademas entrega la sesion, para
+  que no tenga que volver a iniciar sesion: `{ "mfaEnabled": true, "token": "jwt", "role": "teacher" }`.
+
+**Errores:** `400` no hay vinculacion en curso; `401` codigo incorrecto o vinculacion vencida; `409`
+(token de vinculacion) la cuenta ya tiene autenticador.
+
+El token de vinculacion (`typ: "mfa_enroll"`) y el reto del segundo paso (`typ: "mfa_pending"`) **no abren
+ninguna otra ruta protegida**: responden 401.
 
 ---
 
@@ -320,8 +377,8 @@ El middleware `requireStaff` revalida la cuenta contra la base en cada peticion.
 ### `POST /staff/auth/login` - publico
 
 Body `{ "username", "password", "totp" }`. La contrasena se verifica con bcrypt y el `totp`
-es el codigo de 6 digitos de la app de autenticacion (ventana de +/- 30 s). Tras 5 fallos la
-cuenta se bloquea 15 minutos.
+es el codigo de 6 digitos de la app de autenticacion (ventana de +/- 30 s). Tras 3 fallos la
+cuenta se bloquea 10 segundos.
 
 **Respuesta 200:**
 ```json
@@ -330,6 +387,16 @@ cuenta se bloquea 15 minutos.
 
 **Error 401:** `{ "error": "Usuario, contrasena o codigo incorrectos." }` (mismo mensaje para
 credencial invalida, TOTP invalido, cuenta suspendida o bloqueada).
+
+### `POST /staff/teachers/:id/reset-mfa` - `access_manager`
+
+Reinicia el MFA de un **docente** que perdio su celular. El gestor lo hace a mano, despues de verificar
+su identidad por un medio ajeno a la app. Borra el autenticador vinculado, revoca las sesiones abiertas
+del docente y limpia su bloqueo; en su siguiente inicio de sesion tendra que vincular un autenticador
+nuevo. Queda en la auditoria (`staff.teacher.reset_mfa`).
+
+**Respuesta 200:** `{ "id": 12, "username": "profe1", "mfaReset": true }`.
+**Errores:** `400` identificador invalido; `404` el docente no existe (tambien si el id es de un estudiante).
 
 ### `GET /staff/me` - cualquier gestor
 
