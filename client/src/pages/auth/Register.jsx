@@ -45,8 +45,9 @@ export default function Register() {
 
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1.5">Nombre</label>
-                        <input className="auth-input" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Juan Gutierrez" required />
+                        <label className="block text-sm font-medium text-gray-700 mb-1.5">Alias</label>
+                        <input className="auth-input" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="estrella_azul" minLength={3} maxLength={30} pattern="[A-Za-z0-9_.\-]{3,30}" title="De 3 a 30 caracteres: letras, números, punto, guion o guion bajo." autoComplete="username" required />
+                        <p className="text-xs text-gray-500 mt-1">Inventa un alias divertido. ¡No uses tu nombre real!</p>
                     </div>
                     
                     <div>

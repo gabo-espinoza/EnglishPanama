@@ -43,8 +43,8 @@ Definida en `client/tailwind.config.js`.
 | `brand-500` | `#105F68` | Fondo oscuro (degradado) |
 | `brand-300` | `#63C1BB` | Ráfagas de viento |
 | `brand-100` | `#C8E6E2` | Ráfagas de viento (tono claro) |
-| `blue-600` | `#2B8B85` | Botones, logo "E" y enlaces |
-| `blue-700` | `#22716C` | Botón al pasar el mouse |
+| `blue-600` | `#26807A` | Botones, logo "E" y enlaces |
+| `blue-700` | `#1D6B66` | Botón al pasar el mouse |
 | `blue-300` | `#5DC1B9` | Aros de enfoque y acentos |
 | `blue-200` | `#8AE0DB` | Bordes suaves |
 
@@ -67,9 +67,11 @@ Envuelve las pantallas de autenticación: fondo oscuro con degradado turquesa y 
 - Usuario y contraseña, con manejo de errores y estado de carga.
 - Redirige a `/teacher` o `/student` según el rol.
 - Se retiró el checkbox "Recordarme" y el enlace "¿Olvidaste tu contraseña?" porque no tenían funcionalidad conectada.
+- **MFA (segundo factor):** si la cuenta tiene MFA activo, el backend no devuelve sesión sino `{ mfaRequired: true, mfaToken }`. El Login pasa entonces a un segundo paso donde se pide el código de 6 dígitos del autenticador y se envía a `POST /api/auth/login/mfa`. El reto dura 5 minutos; si vence, se vuelve al primer paso. Las cuentas sin MFA entran directo, como antes.
+- Pendiente: pantalla para vincular el autenticador (`POST /api/auth/mfa/setup` y `/mfa/confirm`).
 
 ### Registro (`/register`)
-- Registro de estudiante con usuario, contraseña y código de clase del docente.
+- Registro de estudiante con **alias**, contraseña y código de clase del docente. El alias es lo único que ven los demás (ranking), por eso el formulario pide no usar el nombre real. Reglas del backend: de 3 a 30 caracteres con letras, números, punto, guion o guion bajo.
 - Usa las mismas clases (`auth-input`, `auth-button`) que el Login para verse idéntico.
 
 ## Pendiente

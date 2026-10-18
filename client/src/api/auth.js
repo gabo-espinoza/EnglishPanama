@@ -11,3 +11,8 @@ export function registerStudent(username, password, classCode) {
 export function registerTeacher(username, password, displayName) {
     return apiRequest('/auth/register/teacher', { method: 'POST', body: { username, password, displayName } });
 }
+
+// Segundo paso del login cuando la cuenta tiene MFA: reto del primer paso + codigo TOTP.
+export function loginMfa(mfaToken, totp) {
+    return apiRequest('/auth/login/mfa', { method: 'POST', body: { mfaToken, totp } });
+}
