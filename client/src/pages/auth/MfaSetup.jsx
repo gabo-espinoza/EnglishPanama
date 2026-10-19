@@ -60,9 +60,14 @@ export default function MfaSetup() {
             setSecret(secretFromUri(otpauthUri));
             setQr(await QRCode.toDataURL(otpauthUri, { width: 224, margin: 1, errorCorrectionLevel: 'M' }));
         } catch (err) {
-            if (/ya tiene un autenticador/i.test(err.message)) {
+            if (err.status === 409) {
                 backToLogin('Tu cuenta ya tiene un autenticador. Inicia sesión con tu código.');
-            } else if (/token|sesi[oó]n|autenticaci[oó]n/i.test(err.message)) {
+            } else if (err.status === 429) {
+                // Límite de intentos: el token sigue siendo válido, solo hay que esperar.
+                setError(err.message);
+            } else if (/token|sesi[oó]n/i.test(err.message)) {
+                // El servidor responde 401 por varios motivos (token vencido o revocado, pero también
+                // "indica el código actual"), así que aquí el estado no alcanza y se lee el mensaje.
                 backToLogin('Tu tiempo para vincular el autenticador venció. Inicia sesión de nuevo.');
             } else {
                 setError(err.message);
@@ -99,6 +104,7 @@ export default function MfaSetup() {
             }
         } catch (err) {
             setError(err.message);
+            if (err.status === 429) return; // límite de intentos: el aviso queda en pantalla
             // El secreto pendiente vale 10 minutos: si vencio, hay que pedir uno nuevo.
             if (/vinculaci[oó]n expir|en curso/i.test(err.message)) setNeedsNewCode(true);
             else if (/token|sesi[oó]n expir|revocad/i.test(err.message)) {
