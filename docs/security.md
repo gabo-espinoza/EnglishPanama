@@ -47,7 +47,7 @@ y auditoria).
 | Inyeccion SQL | Todas las consultas usan sentencias parametrizadas (`?`) con `mysql2`. Nunca se concatenan strings. |
 | Manipulacion de puntaje | La correccion y el calculo de XP ocurren en el servidor; el body solo trae respuestas, no resultados. |
 | Fuga de respuestas correctas | `correct_answer` nunca se selecciona en los endpoints publicos; solo se usa internamente al corregir. |
-| Fuerza bruta en login/registro | `express-rate-limit`: maximo 20 intentos por 15 minutos por IP (`middleware/rateLimiter.js`). |
+| Fuerza bruta en login/registro | `express-rate-limit`: maximo 20 intentos **con error** por 15 minutos por IP (`middleware/rateLimiter.js`); entrar bien no gasta el cupo. El tope se sube con `AUTH_RATE_LIMIT_MAX` (un colegio comparte una IP publica). Ademas, cada cuenta se bloquea 10 segundos tras 3 fallos. |
 | Abuso general de la API | Limite general de 120 peticiones por minuto por IP. |
 | Cabeceras inseguras | `helmet` aplica cabeceras de seguridad por defecto. |
 | Body malicioso o enorme | `express.json({ limit: '100kb' })` + manejo de JSON invalido (`400`) y body grande (`413`). |
