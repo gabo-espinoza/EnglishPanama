@@ -42,9 +42,9 @@ Producción tiene hoy el esquema de `main`. `develop` agrega:
 1. **Verificación previa** (solo lectura) — paso 3.
 2. **Respaldo** de la base — paso 4.
 3. **Migración de la base** — paso 5. *Punto de control A: la aplicación actual sigue funcionando.*
-4. **Variables de entorno** en la VM-APP — paso 6.
+4. **Variables de entorno y configuración de nginx** en la VM-APP — paso 6 y 6.1.
 5. **Despliegue** (merge `develop` → `main`) — paso 7. *Punto de control B.*
-6. **Cuentas de gestión** — paso 8.
+6. **Cuentas de gestión y primer docente** — paso 8 y 8.1.
 7. **Verificación funcional** — paso 9.
 
 No saltes pasos ni cambies el orden: el paso 6 debe estar **antes** del 7, porque con `NODE_ENV=production` el servidor se niega a arrancar sin las variables de auditoría.
@@ -89,8 +89,9 @@ pm2 list
 # SOLO los NOMBRES de las variables del .env (no imprime los valores)
 cd /var/www/englishpanama/api && grep -oE '^[A-Z_]+=' .env | tr -d '=' | sort
 
-# ¿nginx reenvía la IP real del cliente? (importa para el límite de intentos, ver sección 10)
-grep -rn "proxy_set_header\|X-Forwarded-For" /etc/nginx/sites-enabled/ /etc/nginx/conf.d/ 2>/dev/null
+# Configuración EFECTIVA de nginx (no uses `grep -r` sobre sites-enabled: no sigue los enlaces simbólicos y da un falso negativo)
+sudo nginx -T 2>/dev/null | grep -nE "server_name|listen|root |location|proxy_pass|proxy_set_header"
+sudo ss -ltnp | grep -E ':80 |:443 |:3000 '
 ```
 
 **Qué se espera de la salida:**
@@ -111,11 +112,13 @@ grep -rn "proxy_set_header\|X-Forwarded-For" /etc/nginx/sites-enabled/ /etc/ngin
 | Disco VM-BD | 39 GB libres de 45 GB | Sobra para el respaldo |
 | VM-APP | IP `10.0.0.186`, Node v24.21.0, `pm2`: `api` en línea (18 días, 3 reinicios) | La API está sana |
 | `.env` de la VM-APP | `DB_HOST DB_NAME DB_PASSWORD DB_USER DEMO_MODE JWT_SECRET PORT` | Faltan las variables nuevas del paso 6 (`NODE_ENV`, `TRUST_PROXY`, `STAFF_*`, `AUDIT_DB_*`) |
-| nginx | la búsqueda de `proxy_set_header` / `X-Forwarded-For` en `sites-enabled` y `conf.d` **no encontró nada** | Pendiente: hay que ver la configuración efectiva (ver sección 10) |
+| nginx | activo; escucha en el puerto 80 (sin 443); `location /api/` hace `proxy_pass http://localhost:3000` y envía `Host` y `X-Real-IP`, **pero no `X-Forwarded-For`** | **Hay que corregirlo** (sección 6.1): Express usa `X-Forwarded-For`, no `X-Real-IP` |
+| API (puerto 3000) | el proceso `node` escucha en `*:3000`, es decir, en **todas** las interfaces, no solo en localhost | Hay que comprobar que desde fuera no se alcance (sección 10) |
+| Tabla `users` | **0 filas** (confirmado) | No hay cuentas que migrar: los docentes y estudiantes se crean desde cero con el flujo nuevo |
 
 Notas:
 
-- El conteo de usuarios por rol no mostró filas. En modo no interactivo `mysql` no imprime nada cuando el resultado está vacío, así que la tabla `users` parece estar **vacía**. Confírmalo con `sudo mysql englishpanama -e "SELECT COUNT(*) FROM users;"`. Si está vacía, no hay cuentas que migrar y los docentes empiezan ya con el flujo nuevo.
+- Con la tabla `users` vacía, la consulta de verificación 2 del paso 5.4 no imprime filas: es lo normal.
 - La VM-APP corre Node 24 y el flujo de despliegue compila con Node 20. Las dependencias del servidor no tienen binarios dependientes de la versión de Node, y la API ya corre así hoy; no se espera ningún problema.
 
 ## 4. Respaldo
@@ -249,7 +252,7 @@ Variables que deben quedar en el `.env`:
 | Variable | Valor | Notas |
 |---|---|---|
 | `NODE_ENV` | `production` | Con esto el servidor **exige** las variables `AUDIT_DB_*` y los scripts de demostración se niegan a correr |
-| `TRUST_PROXY` | `true` | **Imprescindible detrás de nginx** (ver sección 10) |
+| `TRUST_PROXY` | `true` | **Imprescindible detrás de nginx**, junto con el cambio de la sección 6.1 |
 | `JWT_SECRET` | *(ya existe)* | No la cambies: invalidaría todas las sesiones |
 | `STAFF_JWT_SECRET` | *(generada arriba)* | Debe ser **distinta** de `JWT_SECRET` |
 | `STAFF_MFA_KEY` | *(generada arriba)* | 32 bytes en base64. **Respáldala fuera de la VM** (ver abajo) |
@@ -268,6 +271,42 @@ Verifica los nombres (sin valores) y los permisos:
 grep -oE '^[A-Z_]+=' .env | tr -d '=' | sort
 ls -l .env     # esperado: -rw------- (600)
 ```
+
+### 6.1 Configuración de nginx (VM-APP)
+
+`TRUST_PROXY=true` **no basta**: la API solo mira la cabecera `X-Forwarded-For`, y la configuración actual de nginx no la envía (solo envía `X-Real-IP`). Hay que agregarla. Se probó con la configuración exacta de producción (ver sección 12).
+
+**[VM-APP]**
+
+```bash
+# 1) Encontrar el archivo que contiene el bloque (puede estar en sites-available, sites-enabled o nginx.conf)
+sudo grep -Rl "proxy_pass http://localhost:3000" /etc/nginx/
+```
+
+Usa el archivo que aparezca (aquí `ARCHIVO`; si salen dos rutas que apuntan al mismo archivo por un enlace simbólico, edita el original de `sites-available`).
+
+```bash
+# 2) Respaldo
+sudo cp -a ARCHIVO ~/nginx-backup-$(date +%Y%m%d)
+
+# 3) Agregar la cabecera una sola vez, debajo de X-Real-IP (si ya existe, no hace nada)
+sudo grep -q "X-Forwarded-For" ARCHIVO || sudo sed -i '/proxy_set_header X-Real-IP \$remote_addr;/a\            proxy_set_header X-Forwarded-For $remote_addr;' ARCHIVO
+
+# 4) Revisar el cambio y validar la configuración ANTES de recargar
+sudo nginx -t
+sudo nginx -T 2>/dev/null | grep -n "proxy_set_header"
+```
+
+Esperado: `nginx -t` dice `syntax is ok` y `test is successful`, y la lista de `proxy_set_header` ahora incluye `X-Forwarded-For $remote_addr`.
+
+```bash
+# 5) Recargar (no corta las conexiones en curso)
+sudo systemctl reload nginx
+```
+
+Se usa `$remote_addr` y no `$proxy_add_x_forwarded_for` a propósito: así nginx **sobrescribe** cualquier `X-Forwarded-For` que traiga el cliente y nadie puede inventarse su IP. Si algo falla, restaura el respaldo y recarga: `sudo cp -a ~/nginx-backup-<fecha> ARCHIVO && sudo nginx -t && sudo systemctl reload nginx`.
+
+Este cambio es independiente del despliegue y compatible con el código actual: se puede hacer antes, sin riesgo.
 
 ## 7. Despliegue
 
@@ -319,12 +358,39 @@ Otros scripts útiles en la misma carpeta: `list-staff.js` (lista las cuentas, s
 
 > **Nunca** corras `seed-demo-staff.js`, `seed-demo-student.js` ni `seed-demo-content.js` en producción: crean cuentas de demostración. Con `NODE_ENV=production` se niegan a correr.
 
+### 8.1 Crear el primer docente
+
+Los docentes **no se registran**: los crea el gestor de accesos con la API (todavía no hay interfaz para el personal). Se hace desde la VM-APP contra `localhost:3000`, así la contraseña no viaja por internet. Necesitas el código de 6 dígitos de la app de autenticación del `access_manager`.
+
+**[VM-APP]**
+
+```bash
+read -rp "Usuario de gestión: " U; read -rsp "Contraseña: " P; echo; read -rp "Código TOTP de 6 dígitos: " C
+
+TOKEN=$(curl -s -X POST http://localhost:3000/api/staff/auth/login \
+  -H 'Content-Type: application/json' \
+  -d "{\"username\":\"$U\",\"password\":\"$P\",\"totp\":\"$C\"}" \
+  | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).token')
+echo "token: ${TOKEN:0:12}..."     # si sale "undefined", el usuario, la contraseña o el código son incorrectos
+
+curl -s -X POST http://localhost:3000/api/staff/teachers \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"username":"usuario.docente","displayName":"Nombre del Docente"}'
+unset P TOKEN
+```
+
+La respuesta trae el `classCode` y una `temporaryPassword` que **se muestra una sola vez**: anótala y entrégala al docente por un medio seguro. El código de TOTP dura 30 segundos; si el login falla, escribe uno nuevo.
+
+El docente iniciará sesión con esa contraseña temporal y, en su primer ingreso, vinculará su autenticador (obligatorio) y debería cambiar la contraseña con `POST /api/auth/change-password`.
+
 ## 9. Verificación funcional
 
 Desde el navegador, en `http://150.136.50.253`:
 
-1. **Estudiante existente:** inicia sesión con una cuenta real. Debe entrar directo a `/student`.
-2. **Docente existente:** al iniciar sesión debe aparecer la pantalla **"Protege tu cuenta"** (vinculación obligatoria del autenticador). Tras escanear el QR y escribir el código, entra a `/teacher`. Los docentes que ya existían **no pierden la cuenta**: solo vinculan el autenticador en su primer ingreso.
+Como la tabla `users` está vacía, no hay cuentas previas: se prueba con las que se creen.
+
+1. **Docente:** crea uno (sección 8.1) e inicia sesión con la contraseña temporal. Debe aparecer la pantalla **"Protege tu cuenta"** (vinculación obligatoria del autenticador). Tras escanear el QR y escribir el código, entra a `/teacher`.
+2. **Estudiante:** regístrate desde `/register` con el código de clase del docente. Debe entrar directo a `/student`.
 3. **Registro de docentes deshabilitado:** `POST /api/auth/register/teacher` responde 403. Las cuentas de docente las crea el gestor de accesos.
 
 **[VM-APP]** — revisar que el registro de auditoría esté funcionando:
@@ -337,7 +403,27 @@ Y con una cuenta `auditor`, `GET /api/staff/audit/verify` debe responder `{ "ok"
 
 ## 10. Riesgos conocidos
 
-**Límite de intentos y nginx (importante).** Los endpoints de autenticación permiten 20 intentos cada 15 minutos **por IP**. Detrás de nginx, sin `TRUST_PROXY=true`, la API ve a todos los usuarios con la IP de nginx: el límite se comparte entre todos y, tras 20 intentos de login de cualquier persona, **nadie más puede entrar** durante 15 minutos. Se comprobó: con `TRUST_PROXY=false` y 22 clientes distintos, el cliente 21 recibe `429`; con `TRUST_PROXY=true` los 22 pasan. Además, nginx debe enviar la cabecera `X-Forwarded-For` (`proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`); en la verificación previa **no apareció ningún `proxy_set_header`** en `sites-enabled` ni `conf.d`. Falta ver la configuración efectiva de nginx, que puede estar en otro archivo (`sudo nginx -T`), y confirmar que la API se sirve realmente detrás de nginx.
+**Límite de intentos y nginx (importante).** Los endpoints de autenticación permiten 20 intentos cada 15 minutos **por IP**. Si la API no conoce la IP real del cliente, ve a todos los usuarios con la IP de nginx (`127.0.0.1`): el límite se comparte y, tras 20 intentos de login de cualquier persona, **nadie más puede entrar** durante 15 minutos. Se comprobó con nginx 1.24 real delante de la API, 22 clientes con IPs distintas:
+
+| nginx | `TRUST_PROXY` | Resultado |
+|---|---|---|
+| **el actual** (`X-Real-IP`, sin `X-Forwarded-For`) | `true` | cliente 21 y 22: **429** (bucket compartido: el problema sigue) |
+| con `X-Forwarded-For $remote_addr` | `true` | los 22 pasan (**correcto**) |
+| con `X-Forwarded-For $remote_addr` | `false` | cliente 21 y 22: **429** (bucket compartido) |
+
+Hacen falta **las dos cosas**: el cambio de nginx (sección 6.1) y `TRUST_PROXY=true` (sección 6). Con la configuración corregida, un atacante que inventa cabeceras `X-Forwarded-For` desde una sola IP sigue topando con el límite (429 al intento 21), porque nginx sobrescribe la cabecera.
+
+**La API escucha en todas las interfaces.** El proceso `node` escucha en `*:3000`, no solo en localhost. Si el puerto 3000 se alcanzara desde internet, alguien podría saltarse nginx y, con `TRUST_PROXY=true`, inventar su IP con `X-Forwarded-For` para evadir el límite por IP (se comprobó: 22 IP inventadas pasan sin bloqueo). Compruébalo desde **fuera** de la VM:
+
+**[TU PC]**
+
+```bash
+curl -m 5 -s -o /dev/null -w "%{http_code}\n" http://150.136.50.253:3000/api/health
+```
+
+Lo correcto es que **no responda** (tiempo agotado o conexión rechazada). Si devuelve `200`, hay que cerrar el puerto 3000 en el firewall de la VM y en la lista de seguridad de Oracle Cloud (el único puerto público de la aplicación debe ser el 80, o el 443 con HTTPS).
+
+**Todo el tráfico va sin cifrar.** nginx solo escucha en el puerto 80 (HTTP): las contraseñas, los códigos de MFA y los tokens de sesión viajan en texto claro por internet. Para uso real con alumnos conviene un dominio y un certificado gratuito (Let's Encrypt con `certbot`) y redirigir el 80 al 443. No bloquea esta migración, pero es el mayor riesgo que queda.
 
 **Bloqueo por intentos.** Hoy es de 3 intentos y 10 segundos, también para el personal de gestión. Es más laxo que lo ideal para cuentas de gestión; está registrado como decisión pendiente en `docs/specs/staff-fase-a.md`.
 
@@ -377,10 +463,11 @@ El código se puede revertir sin tocar la base, porque la migración es compatib
 - El `INSERT` y el `SELECT` del código **anterior** funcionan sobre la base migrada.
 - La suite de pruebas del backend (**71 pruebas**, rama `feat/teacher-mfa-enrollment`) pasa completa contra la base migrada.
 - Con `NODE_ENV=production`, el servidor se niega a arrancar sin `AUDIT_DB_*` y arranca con ellas.
-- El efecto de `TRUST_PROXY` sobre el límite de intentos (sección 10).
+- Con **nginx 1.24 real** delante de la API: la configuración actual de producción no resuelve el límite compartido ni con `TRUST_PROXY=true`; con `X-Forwarded-For $remote_addr` sí, y no se puede falsificar la IP desde fuera (sección 10). El `sed` de la sección 6.1 se aplicó sobre una copia de esa configuración: agrega una línea, `nginx -t` pasa y la condición `grep -q` evita duplicarla.
+- Procedimiento de la sección 8 en **modo producción** (`NODE_ENV=production` con el `.env` completo): el servidor arranca, `create-staff.js` crea la cuenta, el login del gestor con TOTP devuelve token y `POST /staff/teachers` crea el docente (sección 8.1).
 - `phase2-lockout.sql` original falla en MySQL 8 con `ERROR 1064`; la versión corregida funciona.
 
-**No probado** (depende de tu entorno real): tu versión exacta de MySQL y su configuración, el estado real de tu tabla `users` y de los usuarios de MySQL, la configuración de nginx y de `pm2`, los permisos de tu cuenta de SSH, y el comportamiento de una app de autenticación real en un celular. Por eso existe la verificación previa de la sección 3: pega su salida y confirmamos el estado antes de tocar nada.
+**No probado** (depende de tu entorno real): el firewall y la lista de seguridad de Oracle Cloud (si el puerto 3000 es alcanzable desde fuera), `pm2` en tu VM, los permisos de tu cuenta de SSH, y el comportamiento de una app de autenticación real en un celular. El estado de MySQL, de `users` y de nginx ya se verificó con tus salidas (sección 3.1).
 
 ## Lista de verificación
 
@@ -389,8 +476,10 @@ El código se puede revertir sin tocar la base, porque la migración es compatib
 - [ ] `prod-upgrade-all.sql` copiado a la VM-BD y aplicado (secciones 5.1 y 5.2)
 - [ ] Usuario `audit_writer` creado con la IP de la VM-APP (`10.0.0.186`), no con `%` (sección 5.3)
 - [ ] Verificaciones 5.4 correctas y **punto de control A** superado
+- [ ] nginx envía `X-Forwarded-For $remote_addr` (sección 6.1) y `nginx -t` pasa antes de recargar
+- [ ] Desde fuera, `http://150.136.50.253:3000` **no** responde (sección 10)
 - [ ] `.env` actualizado: `NODE_ENV`, `TRUST_PROXY=true`, `STAFF_*`, `AUDIT_DB_*`; respaldo de `STAFF_MFA_KEY` fuera de la VM (sección 6)
 - [ ] PR pendientes en `develop`; merge `develop` → `main` y Actions en verde (sección 7)
 - [ ] **Punto de control B** superado (`pm2` online, `/api/health` OK)
-- [ ] Cuentas `access_manager` y `auditor` creadas (sección 8)
+- [ ] Cuentas `access_manager` y `auditor` creadas (sección 8) y primer docente creado (sección 8.1)
 - [ ] Verificación funcional (sección 9)
