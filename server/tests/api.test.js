@@ -134,13 +134,21 @@ test('login sin datos responde 400 con formato de error', async () => {
     assert.ok((await res.json()).error);
 });
 
-test('registro de docente sin displayName responde 400', async () => {
-    const res = await fetch(`${baseUrl}/auth/register/teacher`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: 'profe', password: '1234' })
-    });
-    assert.strictEqual(res.status, 400);
+test('el registro de docentes esta deshabilitado: 403 con mensaje claro, sin importar el cuerpo', async () => {
+    for (const body of [
+        { username: 'profe', password: '1234' },
+        { username: 'profe.valido', password: 'ClaveSegura123', displayName: 'Profe Valido' }
+    ]) {
+        const res = await fetch(`${baseUrl}/auth/register/teacher`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        assert.strictEqual(res.status, 403);
+        const data = await res.json();
+        assert.match(data.error, /gestor de accesos/);
+        assert.ok(!data.token && !data.enrollToken && !data.classCode, 'no debe crear ni entregar nada');
+    }
 });
 
 test('username invalido responde 400', async () => {

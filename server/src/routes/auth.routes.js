@@ -1,13 +1,19 @@
 const express = require('express');
 const authController = require('../controllers/auth.controller');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireAuthOrEnroll } = require('../middleware/auth');
 const { authLimiter } = require('../middleware/rateLimiter');
 
 const router = express.Router();
 
 // El limite estricto de auth frena la fuerza bruta sobre las contrasenas y sobre
 // los codigos TOTP (6 digitos tambien son adivinables por fuerza bruta).
-router.post('/register/teacher', authLimiter, authController.registerTeacher);
+// Las cuentas de docente NO se crean por registro: las crea el gestor de accesos
+// (POST /api/staff/teachers). Se deja la ruta con una respuesta clara en lugar de un 404 generico.
+router.post('/register/teacher', (req, res) => {
+    res.status(403).json({
+        error: 'El registro de docentes esta deshabilitado: las cuentas de docente las crea el gestor de accesos.'
+    });
+});
 router.post('/register/student', authLimiter, authController.registerStudent);
 
 // Inicio de sesion en dos pasos. El primero valida usuario y contrasena; si la
@@ -16,9 +22,13 @@ router.post('/register/student', authLimiter, authController.registerStudent);
 router.post('/login', authLimiter, authController.login);
 router.post('/login/mfa', authLimiter, authController.loginMfa);
 
-// Vinculacion del autenticador (requiere sesion): generar secreto + QR y confirmar
-// con un codigo antes de que el MFA quede activo.
-router.post('/mfa/setup', authLimiter, requireAuth, authController.setupMfa);
-router.post('/mfa/confirm', authLimiter, requireAuth, authController.confirmMfa);
+// Cambio de contrasena propio: exige sesion normal y la contrasena actual.
+router.post('/change-password', authLimiter, requireAuth, authController.changePassword);
+
+// Vinculacion del autenticador: generar secreto + QR y confirmar con un codigo antes
+// de que el MFA quede activo. Acepta la sesion normal (MFA opcional) o el token de
+// vinculacion que reciben los docentes en su primer inicio de sesion (MFA obligatorio).
+router.post('/mfa/setup', authLimiter, requireAuthOrEnroll, authController.setupMfa);
+router.post('/mfa/confirm', authLimiter, requireAuthOrEnroll, authController.confirmMfa);
 
 module.exports = router;

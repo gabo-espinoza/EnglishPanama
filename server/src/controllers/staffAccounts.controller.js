@@ -68,7 +68,20 @@ async function analytics(req, res, next) {
     }
 }
 
+// POST /api/staff/teachers/:id/reset-mfa - el gestor de accesos reinicia el MFA de un docente
+async function resetTeacherMfa(req, res, next) {
+    try {
+        const result = await staffAccounts.resetTeacherMfa({
+            teacherId: req.params.id, actorId: req.staff.id
+        });
+        res.json(result);
+    } catch (err) {
+        next(err);
+    }
+}
+
 module.exports = {
+    resetTeacherMfa,
     listAccounts,
     createChangeRequest,
     listChangeRequests,

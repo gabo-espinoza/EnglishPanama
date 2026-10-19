@@ -1,17 +1,15 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { registerStudent, registerTeacher } from '../../api/auth';
+import { registerStudent } from '../../api/auth';
 import { saveSession } from '../../api/session';
+import AuthBackground from '../../components/AuthBackground';
 
 export default function Register() {
-    const [role, setRole] = useState('student');
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [classCode, setClassCode] = useState('');
-    const [displayName, setDisplayName] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
-    const [teacherClassCode, setTeacherClassCode] = useState(null);
     const navigate = useNavigate();
 
     async function handleSubmit(e) {
@@ -19,15 +17,9 @@ export default function Register() {
         setError('');
         setLoading(true);
         try {
-            if (role === 'student') {
-                const { token } = await registerStudent(username, password, classCode);
-                saveSession(token, 'student');
-                navigate('/student');
-            } else {
-                const { token, classCode: newCode } = await registerTeacher(username, password, displayName);
-                saveSession(token, 'teacher');
-                setTeacherClassCode(newCode);
-            }
+            const { token } = await registerStudent(username, password, classCode);
+            saveSession(token, 'student');
+            navigate('/student');
         } catch (err) {
             setError(err.message);
         } finally {
@@ -35,59 +27,51 @@ export default function Register() {
         }
     }
 
-    if (teacherClassCode) {
-        return (
-            <div>
-                <h1>¡Listo!</h1>
-                <p>Tu código de clase es:</p>
-                <p><strong>{teacherClassCode}</strong></p>
-                <p>Compártelo con tus estudiantes para que se registren contigo.</p>
-                <Link to="/teacher">Ir a mi panel</Link>
-            </div>
-        );
-    }
-
     return (
-        <div>
-            <h1>Registro</h1>
-            <div role="radiogroup">
-                <label>
-                    <input type="radio" checked={role === 'student'} onChange={() => setRole('student')} />
-                    Soy estudiante
-                </label>
-                <label>
-                    <input type="radio" checked={role === 'teacher'} onChange={() => setRole('teacher')} />
-                    Soy docente
-                </label>
+        <AuthBackground>
+            <div className="auth-card">
+                
+                <div className="flex items-center justify-center mb-8">
+                    <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center mr-3 shadow-sm">
+                        <span className="text-white font-bold text-xl font-['Fredoka_One']">E</span>
+                    </div>
+                    <span className="text-xl font-bold tracking-tight text-gray-900">English Panamá</span>
+                </div>
+
+                <div className="mb-8 text-center">
+                    <p className="text-sm text-gray-500 mb-1">Únete a la plataforma</p>
+                    <h1 className="text-2xl font-bold text-gray-900">Crear Cuenta</h1>
+                </div>
+
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1.5">Alias</label>
+                        <input className="auth-input" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="estrella_azul" minLength={3} maxLength={30} pattern="[A-Za-z0-9_.\-]{3,30}" title="De 3 a 30 caracteres: letras, números, punto, guion o guion bajo." autoComplete="username" required />
+                        <p className="text-xs text-gray-500 mt-1">Inventa un alias divertido. ¡No uses tu nombre real!</p>
+                    </div>
+                    
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1.5">Contraseña</label>
+                        <input type="password" className="auth-input" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1.5">Código de Clase</label>
+                        <input className="auth-input uppercase" value={classCode} onChange={(e) => setClassCode(e.target.value.toUpperCase())} placeholder="PROFE-123" required />
+                        <p className="text-xs text-gray-500 mt-1">¡Pídele este código a tu profesor si no lo tienes!</p>
+                    </div>
+
+                    {error && <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg text-center">{error}</div>}
+
+                    <button type="submit" disabled={loading} className="auth-button mt-4">
+                        {loading ? 'Creando cuenta...' : 'Registrarme'}
+                    </button>
+                </form>
+
+                <div className="mt-8 text-center text-sm text-gray-600">
+                    ¿Ya tienes una cuenta? <Link to="/login" className="text-blue-600 font-medium hover:underline">Inicia Sesión</Link>
+                </div>
             </div>
-            <form onSubmit={handleSubmit}>
-                <label>
-                    Usuario
-                    <input value={username} onChange={(e) => setUsername(e.target.value)} required />
-                </label>
-                <label>
-                    Contraseña
-                    <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-                </label>
-                {role === 'student' ? (
-                    <label>
-                        Código del docente
-                        <input value={classCode} onChange={(e) => setClassCode(e.target.value)} required />
-                    </label>
-                ) : (
-                    <label>
-                        Nombre para mostrar
-                        <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} required />
-                    </label>
-                )}
-                {error && <p role="alert">{error}</p>}
-                <button type="submit" disabled={loading}>
-                    {loading ? 'Creando cuenta...' : 'Crear cuenta'}
-                </button>
-            </form>
-            <p>
-                ¿Ya tienes cuenta? <Link to="/">Iniciar sesión</Link>
-            </p>
-        </div>
+        </AuthBackground>
     );
 }

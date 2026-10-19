@@ -179,4 +179,40 @@ async function createTeacher({ username, displayName, actorId }) {
     }
 }
 
-module.exports = { listAccounts, getAccount, createChangeRequest, listChangeRequests, decideChangeRequest, createTeacher };
+// --- Reinicio manual del MFA de un docente (rol access_manager) ---
+
+// Si un docente pierde su celular, el gestor de accesos le reinicia el MFA a mano,
+// despues de verificar su identidad por un medio ajeno a la app. Se borra el
+// autenticador vinculado (y cualquier vinculacion a medias), se revocan sus sesiones
+// y se limpia el bloqueo: en su siguiente inicio de sesion, como el MFA es obligatorio
+// para docentes, tendra que vincular un autenticador nuevo.
+async function resetTeacherMfa({ teacherId, actorId }) {
+    const id = Number(teacherId);
+    if (!Number.isInteger(id) || id <= 0) {
+        throw new AppError('Identificador de docente invalido.', 400);
+    }
+
+    const [rows] = await pool.query(
+        "SELECT u.id, u.username FROM users u WHERE u.id = ? AND u.role = 'teacher'",
+        [id]
+    );
+    if (rows.length === 0) {
+        throw new AppError('El docente no existe.', 404);
+    }
+
+    await pool.query(
+        `UPDATE users
+         SET mfa_secret_enc = NULL, mfa_pending_enc = NULL, mfa_pending_expires_at = NULL,
+             token_version = token_version + 1, failed_attempts = 0, locked_until = NULL
+         WHERE id = ? AND role = 'teacher'`,
+        [id]
+    );
+
+    await audit.record({
+        actorType: 'staff', actorId, actorRole: 'access_manager',
+        action: 'staff.teacher.reset_mfa', target: `teacher#${id}:${rows[0].username}`, outcome: 'ok'
+    });
+    return { id, username: rows[0].username, mfaReset: true };
+}
+
+module.exports = { resetTeacherMfa, listAccounts, getAccount, createChangeRequest, listChangeRequests, decideChangeRequest, createTeacher };

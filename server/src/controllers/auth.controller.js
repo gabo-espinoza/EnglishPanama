@@ -1,14 +1,5 @@
 const authService = require('../services/auth.service');
 
-async function registerTeacher(req, res, next) {
-    try {
-        const result = await authService.registerTeacher(req.body);
-        res.status(201).json(result);
-    } catch (err) {
-        next(err);
-    }
-}
-
 async function registerStudent(req, res, next) {
     try {
         const result = await authService.registerStudent(req.body);
@@ -41,7 +32,7 @@ async function loginMfa(req, res, next) {
 // POST /api/auth/mfa/setup  (autenticado) - genera el secreto y el URI otpauth
 async function setupMfa(req, res, next) {
     try {
-        const result = await authService.setupMfa({ userId: req.user.id, totp: (req.body || {}).totp });
+        const result = await authService.setupMfa({ userId: req.user.id, totp: (req.body || {}).totp, enrollOnly: Boolean(req.enrollOnly) });
         res.json(result);
     } catch (err) {
         next(err);
@@ -51,11 +42,22 @@ async function setupMfa(req, res, next) {
 // POST /api/auth/mfa/confirm  (autenticado) - confirma el codigo y activa el MFA
 async function confirmMfa(req, res, next) {
     try {
-        const result = await authService.confirmMfa({ userId: req.user.id, totp: (req.body || {}).totp });
+        const result = await authService.confirmMfa({ userId: req.user.id, totp: (req.body || {}).totp, enrollOnly: Boolean(req.enrollOnly) });
         res.json(result);
     } catch (err) {
         next(err);
     }
 }
 
-module.exports = { registerTeacher, registerStudent, login, loginMfa, setupMfa, confirmMfa };
+// POST /api/auth/change-password  (autenticado) - { currentPassword, newPassword }
+async function changePassword(req, res, next) {
+    try {
+        const { currentPassword, newPassword } = req.body || {};
+        const result = await authService.changePassword({ userId: req.user.id, currentPassword, newPassword });
+        res.json(result);
+    } catch (err) {
+        next(err);
+    }
+}
+
+module.exports = { changePassword, registerStudent, login, loginMfa, setupMfa, confirmMfa };
