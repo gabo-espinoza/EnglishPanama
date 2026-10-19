@@ -36,7 +36,7 @@ npm run dev              # http://localhost:3000/api/health
 ```
 
 Variables principales (ver `env.example`): `DB_HOST`, `DB_PORT`, `DB_USER`,
-`DB_PASSWORD`, `DB_NAME`, `JWT_SECRET`, `DEMO_MODE`, `CORS_ORIGIN`, `TRUST_PROXY`,
+`DB_PASSWORD`, `DB_NAME`, `JWT_SECRET`, `DEMO_MODE`, `CORS_ORIGIN`, `TRUST_PROXY`, `AUTH_RATE_LIMIT_MAX`,
 `STAFF_JWT_SECRET`, `STAFF_MFA_KEY`, `AUDIT_DB_HOST`, `AUDIT_DB_USER`,
 `AUDIT_DB_PASSWORD`, `AUDIT_DB_NAME`.
 
