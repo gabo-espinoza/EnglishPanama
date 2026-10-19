@@ -96,8 +96,9 @@ export default function Login() {
                 {mfaToken ? (
                 <form onSubmit={handleMfaSubmit} className="space-y-5">
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1.5">Código del autenticador</label>
+                        <label htmlFor="login-mfa-code" className="block text-sm font-medium text-gray-700 mb-1.5">Código del autenticador</label>
                         <input
+                            id="login-mfa-code"
                             className="auth-input text-center tracking-[0.4em]"
                             value={code}
                             onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
@@ -122,13 +123,13 @@ export default function Login() {
                 ) : (
                 <form onSubmit={handleSubmit} className="space-y-5">
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1.5">Usuario</label>
-                        <input className="auth-input" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Ej. estudiante_1" required />
+                        <label htmlFor="login-username" className="block text-sm font-medium text-gray-700 mb-1.5">Usuario</label>
+                        <input id="login-username" className="auth-input" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Ej. estudiante_1" required />
                     </div>
                     
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1.5">Contraseña</label>
-                        <input type="password" className="auth-input" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required />
+                        <label htmlFor="login-password" className="block text-sm font-medium text-gray-700 mb-1.5">Contraseña</label>
+                        <input id="login-password" type="password" className="auth-input" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required />
                     </div>
 
                     {error && <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg text-center">{error}</div>}
