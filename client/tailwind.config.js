@@ -20,20 +20,9 @@ export default {
           500: '#105F68',
           600: '#0B454C',
         },
-        // Login y registro: turquesa más claro
+        // Turquesa de login y registro. Ojo: sustituye al "blue" de Tailwind, así que
+        // bg-blue-* es turquesa (los componentes usan estas clases a través de .auth-input y .auth-button).
         blue: {
-          50: '#EAFFFF',
-          100: '#B5FFFF',
-          200: '#8AE0DB',
-          300: '#5DC1B9',
-          400: '#5DC1B9',
-          500: '#3FA9A1',
-          600: '#26807A',
-          700: '#1D6B66',
-          800: '#175651',
-          900: '#10403C',
-        },
-        green: {
           50: '#EAFFFF',
           100: '#B5FFFF',
           200: '#8AE0DB',
