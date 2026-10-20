@@ -68,6 +68,7 @@ Envuelve las pantallas de autenticación: fondo oscuro con degradado turquesa y 
 - Redirige a `/teacher` o `/student` según el rol.
 - Se retiró el checkbox "Recordarme" y el enlace "¿Olvidaste tu contraseña?" porque no tenían funcionalidad conectada.
 - **MFA (segundo factor):** si la cuenta tiene MFA activo, el backend no devuelve sesión sino `{ mfaRequired: true, mfaToken }`. El Login pasa entonces a un segundo paso donde se pide el código de 6 dígitos del autenticador y se envía a `POST /api/auth/login/mfa`. El reto dura 5 minutos; si vence, se vuelve al primer paso. Las cuentas sin MFA entran directo, como antes.
+- **Contraseña inicial obligatoria:** si la cuenta debe crear su contraseña (docente nuevo), el backend responde `{ passwordChangeRequired: true, passwordToken }` y el Login manda a `/password/initial` (ver abajo). Esto ocurre antes que el MFA.
 - **MFA obligatorio para docentes:** si el docente aún no vinculó un autenticador, el backend no entrega sesión sino `{ mfaSetupRequired: true, enrollToken }`. El Login lo manda a `/mfa/setup` (ver abajo). Los estudiantes siguen con MFA opcional.
 - Si otra pantalla devuelve al usuario al login (por ejemplo, un token vencido), deja un aviso en `location.state.notice` y el Login lo muestra.
 
@@ -84,8 +85,16 @@ Envuelve las pantallas de autenticación: fondo oscuro con degradado turquesa y 
 - El token de vinculación no abre ninguna otra ruta: sin él, `/mfa/setup` redirige al login.
 - Si un docente pierde el celular, el gestor de accesos le reinicia el MFA y vuelve a pasar por esta pantalla en su siguiente inicio de sesión.
 
+### Creación de la contraseña inicial (`/password/initial`)
+- Llega aquí el docente recién creado por el gestor de accesos. Su cuenta nace con la bandera `must_change_password`, así que `POST /api/auth/login` no devuelve sesión sino `{ passwordChangeRequired: true, passwordToken, expiresIn }`. El Login navega a `/password/initial` y le pasa el `passwordToken` en el estado del router, **en memoria**, nunca en `localStorage`.
+- Pantalla "Crea tu contraseña": dos campos (contraseña nueva y repetirla). Si no coinciden se avisa en el cliente sin viajar al servidor; el servidor sigue siendo la autoridad (4 a 72 caracteres y distinta de la temporal).
+- Envía `POST /api/auth/set-initial-password` con el `passwordToken`. La respuesta continúa el flujo normal del login: un docente sin autenticador recibe `{ mfaSetupRequired, enrollToken }` y pasa a `/mfa/setup`; con MFA activo vuelve a `/login` con el reto del segundo paso; en otro caso se guarda la sesión y entra a su panel.
+- `401` (el token de 15 minutos venció o se revocó) y `409 PASSWORD_ALREADY_SET` (la contraseña ya fue creada) devuelven al login con un aviso. Los demás errores (400, 429) se muestran en el formulario.
+- Sin `passwordToken` en el estado (por ejemplo, al recargar la página), la ruta redirige al login.
+- Red de seguridad: si una sesión vieja recibe `403` con `code: "PASSWORD_CHANGE_REQUIRED"`, el cliente HTTP (`api/client.js`) descarta la sesión y lleva a `/login`, donde el flujo normal lo conduce a crear la contraseña.
+
 ### Rutas
-`/login`, `/register`, `/mfa/setup`, y las protegidas `/student/*` y `/teacher/*` (`ProtectedRoute`). `/` redirige a `/login`.
+`/login`, `/register`, `/password/initial`, `/mfa/setup`, y las protegidas `/student/*` y `/teacher/*` (`ProtectedRoute`). `/` redirige a `/login`.
 
 ## Pendiente
 - Vistas de estudiante (`pages/student`).

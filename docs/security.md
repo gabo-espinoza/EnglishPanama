@@ -77,6 +77,23 @@ y auditoria).
 | Auditoria alterable | La auditoria vive en **otra base** (`englishpanama_audit`) con un usuario que solo tiene `INSERT` y `SELECT`. Cada fila encadena un hash SHA-256; `GET /staff/audit/verify` detecta cualquier alteracion. |
 | Registros incompletos | Cada accion sensible (login, cambio de estado, creacion de docente, decisiones) queda en el registro con actor, rol, accion y resultado. |
 
+### 2.2 Cambio obligatorio de la contrasena inicial
+
+Los docentes nacen con una contrasena temporal que conoce quien crea la cuenta. Para que esa clave no
+quede en uso, la tabla `users` tiene la bandera `must_change_password` (1 = el usuario debe crear su
+contrasena antes de recibir sesion; las cuentas existentes quedan en 0).
+
+| Riesgo | Control |
+|---|---|
+| Contrasena temporal conocida por terceros | Con la bandera en 1, `POST /auth/login` no entrega sesion: devuelve `{ passwordChangeRequired, passwordToken }`. Esta comprobacion va **antes** del MFA, asi que el docente no llega a vincular su autenticador sin haber creado su propia contrasena. |
+| Uso indebido del token del cambio | `passwordToken` es un JWT con `typ: "pwd_change"` y **15 minutos** de vida. Solo abre `POST /auth/set-initial-password`; en cualquier otra ruta `requireAuth` lo rechaza (`401`), igual que al reto `mfa_pending` y al token `mfa_enroll`. Esa ruta, a su vez, rechaza cualquier otro tipo de token. |
+| Reutilizacion del token o de la temporal | El `UPDATE` que fija la contrasena solo procede si la bandera sigue en 1 y sube `token_version`: el `passwordToken` usado, y cualquier sesion abierta con la temporal, quedan revocados. Una segunda peticion (incluso concurrente) recibe `409 PASSWORD_ALREADY_SET`. |
+| Sesion saltandose el cambio | Mientras la bandera valga 1, `requireAuth` revalida contra la base en cada peticion y responde `403` con `code: "PASSWORD_CHANGE_REQUIRED"`. |
+| Conservar la temporal | La contrasena nueva debe ser distinta de la temporal, coincidir con su confirmacion y cumplir el largo (4 a 72 caracteres). |
+| Trazabilidad | El cambio queda en la auditoria como `user.password.initial_set`. |
+
+El `passwordToken` viaja en el estado del router del cliente (en memoria), nunca en `localStorage`.
+
 ## 3. Validacion de entrada
 
 - `username`: 3-30 caracteres, solo `[A-Za-z0-9_.-]`.
