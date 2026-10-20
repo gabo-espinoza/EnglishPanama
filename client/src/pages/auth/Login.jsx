@@ -32,7 +32,7 @@ export default function Login() {
         try {
             const result = await login(username, password);
             // Docente con contraseña temporal: debe crear la suya antes de continuar.
-            // El token viaja en memoria (estado del router), nunca en localStorage.
+            // El token viaja en el estado del router (historial del navegador), nunca en localStorage ni en la URL.
             if (result.passwordChangeRequired) {
                 navigate('/password/initial', { replace: true, state: { passwordToken: result.passwordToken } });
                 return;
@@ -43,7 +43,7 @@ export default function Login() {
                 return;
             }
             // Docente sin autenticador: el MFA es obligatorio, asi que no hay sesion todavia.
-            // El token de vinculacion viaja en memoria (estado del router), no en localStorage.
+            // El token de vinculacion viaja en el estado del router (historial del navegador), no en localStorage ni en la URL.
             if (result.mfaSetupRequired) {
                 navigate('/mfa/setup', { replace: true, state: { enrollToken: result.enrollToken } });
                 return;

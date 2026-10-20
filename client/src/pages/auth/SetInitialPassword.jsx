@@ -5,8 +5,9 @@ import { saveSession } from '../../api/session';
 import AuthBackground from '../../components/AuthBackground';
 
 // Primer ingreso de un docente: reemplaza la contraseña temporal. El login no entrega sesión
-// sino un token de un solo propósito (passwordToken) que viaja en el estado del router, en
-// memoria. Sin ese token no hay nada que hacer aquí y se vuelve al login.
+// sino un token de un solo propósito (passwordToken) que viaja en el estado del router
+// (historial del navegador), nunca en localStorage ni en la URL. Una recarga lo conserva mientras
+// siga vigente (15 minutos). Sin ese token no hay nada que hacer aquí y se vuelve al login.
 export default function SetInitialPassword() {
     const location = useLocation();
     const navigate = useNavigate();

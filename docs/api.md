@@ -139,12 +139,14 @@ docente sin autenticador es el token de vinculacion:
 sesion `{ "token": "jwt", "role": "..." }`).
 
 El cambio sube la `token_version` de la cuenta: el `passwordToken` usado y cualquier sesion abierta con la
-contrasena temporal quedan **revocados**. El token no se puede reutilizar.
+contrasena temporal quedan **revocados**. El token no se puede reutilizar: un segundo uso posterior recibe `401`
+(la `token_version` ya no coincide). Si dos peticiones con el mismo token llegan a la vez, solo una gana y la
+otra recibe `401` o `409` (`409` solo si lee la fila antes de que el primer `UPDATE` se confirme).
 
-**Errores:** `400` faltan datos, contrasena invalida, no coincide con `confirmPassword` o igual a la temporal;
-`401` token vencido, invalido o revocado, o cuenta no disponible o bloqueada; `409` con
-`code: "PASSWORD_ALREADY_SET"` si la contrasena ya fue creada (tambien si dos peticiones llegan a la vez:
-solo una gana).
+**Errores:** `400` faltan datos (o `newPassword`/`confirmPassword` no son texto), contrasena invalida, no coincide
+con `confirmPassword` o igual a la temporal; `401` token vencido, invalido o revocado, o cuenta no disponible;
+`429` cuenta bloqueada por intentos (el token sigue siendo valido; espera unos segundos y reintenta); `409` con
+`code: "PASSWORD_ALREADY_SET"` si el token aun coincide pero la contrasena ya fue creada (bandera en 0).
 
 > Mientras `must_change_password` siga en 1, **cualquier ruta protegida** con una sesion normal responde
 > `403` con `code: "PASSWORD_CHANGE_REQUIRED"` (por ejemplo, una sesion emitida antes de que se creara la

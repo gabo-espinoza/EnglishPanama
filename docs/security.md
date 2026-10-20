@@ -87,12 +87,12 @@ contrasena antes de recibir sesion; las cuentas existentes quedan en 0).
 |---|---|
 | Contrasena temporal conocida por terceros | Con la bandera en 1, `POST /auth/login` no entrega sesion: devuelve `{ passwordChangeRequired, passwordToken }`. Esta comprobacion va **antes** del MFA, asi que el docente no llega a vincular su autenticador sin haber creado su propia contrasena. |
 | Uso indebido del token del cambio | `passwordToken` es un JWT con `typ: "pwd_change"` y **15 minutos** de vida. Solo abre `POST /auth/set-initial-password`; en cualquier otra ruta `requireAuth` lo rechaza (`401`), igual que al reto `mfa_pending` y al token `mfa_enroll`. Esa ruta, a su vez, rechaza cualquier otro tipo de token. |
-| Reutilizacion del token o de la temporal | El `UPDATE` que fija la contrasena solo procede si la bandera sigue en 1 y sube `token_version`: el `passwordToken` usado, y cualquier sesion abierta con la temporal, quedan revocados. Una segunda peticion (incluso concurrente) recibe `409 PASSWORD_ALREADY_SET`. |
+| Reutilizacion del token o de la temporal | El `UPDATE` que fija la contrasena solo procede si la bandera sigue en 1 y sube `token_version`: el `passwordToken` usado, y cualquier sesion abierta con la temporal, quedan revocados. Un segundo uso secuencial del mismo `passwordToken` recibe `401` (la `token_version` ya no coincide); una peticion concurrente recibe `401` o `409` (`409` solo si lee la fila antes de que el primer `UPDATE` se confirme). Un `passwordToken` usado con la bandera ya en 0 pero con la version aun vigente recibe `409 PASSWORD_ALREADY_SET`. |
 | Sesion saltandose el cambio | Mientras la bandera valga 1, `requireAuth` revalida contra la base en cada peticion y responde `403` con `code: "PASSWORD_CHANGE_REQUIRED"`. |
 | Conservar la temporal | La contrasena nueva debe ser distinta de la temporal, coincidir con su confirmacion y cumplir el largo (4 a 72 caracteres). |
 | Trazabilidad | El cambio queda en la auditoria como `user.password.initial_set`. |
 
-El `passwordToken` viaja en el estado del router del cliente (en memoria), nunca en `localStorage`.
+El `passwordToken` viaja en el estado del router (historial del navegador, `window.history.state`), nunca en `localStorage` ni en la URL. Sobrevive a una recarga mientras el token sea valido; muere a los 15 minutos o al usarse.
 
 ## 3. Validacion de entrada
 
@@ -127,7 +127,8 @@ Estas no dependen del codigo de la app y son clave antes de publicar:
    ubicaciones u horas inusuales (base para el plan de auditoria del documento de diseno).
 8. **Actualizar dependencias** con `npm audit` antes de cada entrega.
 9. **Tokens cortos para el personal.** Ya implementado: 20 minutos con MFA; se recomienda
-   ademas forzar el cambio de contrasena temporal en el primer ingreso del docente.
+   el cambio de contrasena temporal en el primer ingreso del docente ya esta implementado
+   (ver seccion 2.2).
 
 ## 5. Checklist para la prueba de seguridad
 

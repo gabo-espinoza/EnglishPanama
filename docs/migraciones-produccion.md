@@ -481,9 +481,12 @@ Si estás haciendo la migración completa de las secciones 4 y 5, aplica esta ju
 
 ```bash
 mkdir -p ~/backups
-sudo mysqldump --single-transaction --routines --triggers englishpanama | gzip > ~/backups/englishpanama-$(date +%Y%m%d-%H%M).sql.gz
-gunzip -t ~/backups/englishpanama-*.sql.gz && echo "respaldo OK"
+BACKUP=~/backups/englishpanama-$(date +%Y%m%d-%H%M).sql.gz
+sudo mysqldump --single-transaction --routines --triggers englishpanama | gzip > "$BACKUP"
+gunzip -t "$BACKUP" && echo "respaldo OK: $BACKUP"
 ```
+
+Recomendado: copia el respaldo **fuera** de la VM (por ejemplo, con `scp` a tu PC).
 
 **2. Llevar el archivo a la VM-BD — [TU PC]** (dentro del clon del repositorio, con la rama que contiene el archivo)
 
