@@ -43,6 +43,8 @@ test('requireStaff pasa los fallos de la base a next(err) y no deja un rechazo s
     } finally {
         process.off('unhandledRejection', onUnhandled);
         await pool.end().catch(() => {});
+        // requireStaff audita el fallo y eso abre el pool de auditoria: si no se cierra, el archivo no termina.
+        await require('../src/config/auditDb').closeAuditPool().catch(() => {});
     }
 });
 
