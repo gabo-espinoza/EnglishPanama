@@ -2,6 +2,7 @@ const pool = require('../config/db');
 const AppError = require('../utils/AppError');
 const { getDemoDayOffset } = require('./settings.service');
 const { progressForXp } = require('./xp.service');
+const { getClassLevelForStudent } = require('./classLevel.service');
 
 // XP que otorga completar el reto diario.
 const DAILY_CHALLENGE_XP = 10;
@@ -28,14 +29,26 @@ function dayOfYear(date) {
 // Fecha "efectiva": la fecha real desplazada por el offset del modo demo.
 // Tanto el reto de hoy como la fecha de completado usan siempre esta fecha,
 // de modo que el modo demo mueve las dos cosas a la vez.
-async function resolveTodayChallenge() {
+// El conjunto de retos se filtra por el nivel de la clase del estudiante; sin grado o sin
+// retos de ese nivel el conjunto queda vacio y se responde igual que con el pool vacio.
+async function resolveTodayChallenge(studentId) {
     const offset = await getDemoDayOffset();
     const effectiveDate = addDays(new Date(), offset);
     const completedOn = toDateOnly(effectiveDate);
 
-    const [poolRows] = await pool.query(
-        'SELECT id, question_id AS questionId, position FROM daily_challenges ORDER BY position, id'
-    );
+    const level = await getClassLevelForStudent(studentId);
+    let poolRows = [];
+    if (level) {
+        [poolRows] = await pool.query(
+            `SELECT dc.id, dc.question_id AS questionId, dc.position
+             FROM daily_challenges dc
+             JOIN questions q ON q.id = dc.question_id
+             JOIN activities a ON a.id = q.activity_id
+             WHERE a.level = ?
+             ORDER BY dc.position, dc.id`,
+            [level]
+        );
+    }
     if (poolRows.length === 0) {
         throw new AppError('No hay retos diarios configurados.', 404);
     }
@@ -47,7 +60,7 @@ async function resolveTodayChallenge() {
 }
 
 async function getDailyChallenge(studentId) {
-    const { challenge, completedOn } = await resolveTodayChallenge();
+    const { challenge, completedOn } = await resolveTodayChallenge(studentId);
 
     const [questionRows] = await pool.query(
         'SELECT id, prompt, options, topic FROM questions WHERE id = ?',
@@ -71,7 +84,7 @@ async function getDailyChallenge(studentId) {
 }
 
 async function completeDailyChallenge(studentId) {
-    const { challenge, completedOn } = await resolveTodayChallenge();
+    const { challenge, completedOn } = await resolveTodayChallenge(studentId);
     const xpEarned = DAILY_CHALLENGE_XP;
 
     const connection = await pool.getConnection();

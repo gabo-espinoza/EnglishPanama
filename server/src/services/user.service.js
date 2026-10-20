@@ -1,6 +1,7 @@
 const pool = require('../config/db');
 const AppError = require('../utils/AppError');
 const { progressForXp } = require('./xp.service');
+const { levelForGrade } = require('../config/classLevels');
 
 // El avatar es un identificador corto (ej. "default", "zorro-1"); no se guarda
 // HTML ni rutas, para evitar inyeccion en el cliente.
@@ -13,7 +14,7 @@ async function getProfile(userId, role) {
     if (role === 'student') {
         const [rows] = await pool.query(
             `SELECT u.username AS alias, s.avatar, s.xp,
-                    s.teacher_id AS teacherId, t.class_code AS classCode
+                    s.teacher_id AS teacherId, t.class_code AS classCode, t.grade AS classGrade
              FROM students s
              JOIN users u ON u.id = s.user_id
              JOIN teachers t ON t.user_id = s.teacher_id
@@ -32,13 +33,16 @@ async function getProfile(userId, role) {
             xp: student.xp,
             teacherId: student.teacherId,
             classCode: student.classCode,
+            classGrade: student.classGrade ?? null,
+            classLevel: levelForGrade(student.classGrade),
             ...progressForXp(student.xp)
         };
     }
 
     if (role === 'teacher') {
         const [rows] = await pool.query(
-            `SELECT u.username AS alias, t.display_name AS displayName, t.class_code AS classCode
+            `SELECT u.username AS alias, t.display_name AS displayName, t.class_code AS classCode,
+                    t.grade AS classGrade
              FROM teachers t
              JOIN users u ON u.id = t.user_id
              WHERE t.user_id = ?`,
@@ -53,7 +57,9 @@ async function getProfile(userId, role) {
             role: 'teacher',
             alias: teacher.alias,
             displayName: teacher.displayName,
-            classCode: teacher.classCode
+            classCode: teacher.classCode,
+            classGrade: teacher.classGrade ?? null,
+            classLevel: levelForGrade(teacher.classGrade)
         };
     }
 
