@@ -70,7 +70,8 @@ test.before(async () => {
     studentA = await makeUser('student', `s.a.${suffix}`);
     studentB = await makeUser('student', `s.b.${suffix}`);
 
-    await pool.query('INSERT INTO teachers (user_id, display_name, class_code) VALUES (?, ?, ?)', [teacherA, 'Docente A', 'A' + suffix]);
+    // El docente A declara grado 3 (nivel A1.1): su clase solo ve actividades de ese nivel.
+    await pool.query('INSERT INTO teachers (user_id, display_name, class_code, grade, grade_locked_at) VALUES (?, ?, ?, 3, NOW())', [teacherA, 'Docente A', 'A' + suffix]);
     await pool.query('INSERT INTO teachers (user_id, display_name, class_code) VALUES (?, ?, ?)', [teacherB, 'Docente B', 'B' + suffix]);
     await pool.query('INSERT INTO students (user_id, teacher_id) VALUES (?, ?)', [studentA, teacherA]);
     await pool.query('INSERT INTO students (user_id, teacher_id) VALUES (?, ?)', [studentB, teacherB]);
@@ -88,7 +89,7 @@ test.before(async () => {
     }
 
     const [act] = await pool.query(
-        "INSERT INTO activities (module_id, title, game_type, sort_order) VALUES (?, ?, 'multiple_choice', 0)",
+        "INSERT INTO activities (module_id, title, game_type, sort_order, level) VALUES (?, ?, 'multiple_choice', 0, 'A1.1')",
         [moduleId, `Actividad aislamiento ${suffix}`]
     );
     activityId = act.insertId;
