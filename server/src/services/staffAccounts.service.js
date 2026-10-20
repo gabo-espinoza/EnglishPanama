@@ -154,7 +154,7 @@ async function createTeacher({ username, displayName, actorId }) {
     try {
         await conn.beginTransaction();
         const [userResult] = await conn.query(
-            'INSERT INTO users (role, username, password_hash) VALUES (?, ?, ?)',
+            'INSERT INTO users (role, username, password_hash, must_change_password) VALUES (?, ?, ?, 1)',
             ['teacher', username, passwordHash]
         );
         const userId = userResult.insertId;

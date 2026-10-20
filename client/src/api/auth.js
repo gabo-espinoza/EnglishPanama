@@ -13,6 +13,16 @@ export function loginMfa(mfaToken, totp) {
     return apiRequest('/auth/login/mfa', { method: 'POST', body: { mfaToken, totp } });
 }
 
+// Primer ingreso de un docente: reemplaza la contraseña temporal. `passwordToken` es el
+// token de un solo propósito que entrega el login (viaja en el estado del router, historial del navegador; nunca en localStorage ni en la URL).
+export function setInitialPassword(passwordToken, newPassword, confirmPassword) {
+    return apiRequest('/auth/set-initial-password', {
+        method: 'POST',
+        body: { newPassword, confirmPassword },
+        token: passwordToken
+    });
+}
+
 // Vinculacion del autenticador. `token` es el token de vinculacion que recibe un docente
 // en su primer inicio de sesion (o una sesion normal, si el MFA es opcional para la cuenta).
 export function mfaSetup(token) {

@@ -21,7 +21,14 @@ function errorHandler(err, req, res, next) {
 
     const message = status === 500 ? 'Ocurrio un error inesperado.' : err.message;
 
-    res.status(status).json({ error: message });
+    // Solo se expone el apiCode propio de la API, nunca el `code` de errores ajenos
+    // (MySQL, Node), y nunca en un 5xx.
+    const body = { error: message };
+    if (status < 500 && typeof err.apiCode === 'string') {
+        body.code = err.apiCode;
+    }
+
+    res.status(status).json(body);
 }
 
 module.exports = errorHandler;
