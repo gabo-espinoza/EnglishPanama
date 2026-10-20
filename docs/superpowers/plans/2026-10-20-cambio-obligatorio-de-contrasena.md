@@ -32,7 +32,7 @@ Casos que el diseño implica y que ninguna tarea de "camino feliz" ejercita. Cad
 
 ---
 
-### Tarea 1: Columna, migración y creación de docentes con la bandera
+### Tarea 1 (Task 1): Columna, migración y creación de docentes con la bandera
 
 **Archivos:**
 - Crear: `server/database/migrations/phase3-must-change-password.sql`
@@ -51,7 +51,7 @@ Casos que el diseño implica y que ninguna tarea de "camino feliz" ejercita. Cad
 - [ ] **Paso 5: Verificar**: sintaxis con `node --check server/src/services/staffAccounts.service.js`; la prueba del paso 1 pasa donde haya MySQL.
 - [ ] **Paso 6: Commit** `feat(auth): columna must_change_password y docentes nuevos con cambio obligatorio`.
 
-### Tarea 2: Campo `code` en los errores de la API
+### Tarea 2 (Task 2): Campo `code` en los errores de la API
 
 **Archivos:**
 - Modificar: `server/src/services/auth.service.js` (`AuthError`)
@@ -74,7 +74,7 @@ Casos que el diseño implica y que ninguna tarea de "camino feliz" ejercita. Cad
 - [ ] **Paso 5: Cliente.** `ApiError` recibe y guarda `code`; `apiRequest` lo pasa desde `data.code`.
 - [ ] **Paso 6: Commit** `feat(api): campo code legible por maquina en los errores`.
 
-### Tarea 3: El middleware entiende el token restringido y la bandera
+### Tarea 3 (Task 3): El middleware entiende el token restringido y la bandera
 
 **Archivos:**
 - Modificar: `server/src/middleware/auth.js`
@@ -98,7 +98,7 @@ Casos que el diseño implica y que ninguna tarea de "camino feliz" ejercita. Cad
 - [ ] **Paso 5: Verificar que pasan** las pruebas DB-less (y las de base donde haya MySQL). Ejecutar además `node --test tests/session.test.js` donde haya MySQL para confirmar que las sesiones existentes siguen funcionando.
 - [ ] **Paso 6: Commit** `feat(auth): requireAuth exige la creacion de contrasena y rechaza el token restringido`.
 
-### Tarea 4: Servicio, controlador y ruta de `set-initial-password`
+### Tarea 4 (Task 4): Servicio, controlador y ruta de `set-initial-password`
 
 **Archivos:**
 - Modificar: `server/src/services/auth.service.js`
@@ -138,7 +138,7 @@ Reglas de `setInitialPassword` (servidor):
 - [ ] **Paso 4: Verificar que pasan** donde haya MySQL; sin MySQL, `node --check` de los tres archivos y las pruebas DB-less de las tareas 2 y 3. Correr también `node --test tests/mfa-teacher.test.js tests/password.test.js` donde haya MySQL: el login de docentes con la bandera en `0` no debe cambiar.
 - [ ] **Paso 5: Commit** `feat(auth): set-initial-password y bandera de cambio obligatorio en el login`.
 
-### Tarea 5: Cliente: pantalla "Crea tu contraseña" y manejo del 403
+### Tarea 5 (Task 5): Cliente: pantalla "Crea tu contraseña" y manejo del 403
 
 **Archivos:**
 - Crear: `client/src/pages/auth/SetInitialPassword.jsx`
@@ -158,7 +158,7 @@ Comportamiento:
 - [ ] **Paso 2: Verificar sin compilar**: `cd client && node --check` no aplica a JSX; revisar el diff completo, comprobar que no hay texto con voseo y que los imports resuelven (`rg -n "SetInitialPassword|setInitialPassword" client/src`).
 - [ ] **Paso 3: Commit** `feat(client): pantalla para crear la contrasena en el primer ingreso`.
 
-### Tarea 6: Documentación y guía de migración
+### Tarea 6 (Task 6): Documentación y guía de migración
 
 **Archivos:**
 - Modificar: `docs/api.md` (en `POST /auth/login`: la respuesta `passwordChangeRequired`; sección nueva `POST /auth/set-initial-password`; `code` en "Formato de errores"; corregir la nota de `/auth/register/teacher` si menciona el cambio opcional)
@@ -169,7 +169,7 @@ Comportamiento:
 - [ ] **Paso 2: Verificar** que los ejemplos del documento coinciden con las respuestas reales del servidor (nombres de campos de las tareas 3 y 4).
 - [ ] **Paso 3: Commit** `docs: cambio obligatorio de contrasena (API, seguridad y migracion)`.
 
-### Tarea 7: Revisión y verificación funcional
+### Tarea 7 (Task 7): Revisión y verificación funcional
 
 - [ ] **Paso 1:** correr todas las pruebas que no necesitan MySQL: `cd server && node --test tests/errorCode.test.js tests/rateLimiter.test.js tests/password-initial.test.js` (las de base se omiten). Informar con exactitud cuántas pasaron y cuántas se omitieron.
 - [ ] **Paso 2:** abrir el PR a `develop` con el título `feat(auth): cambio obligatorio de la contraseña temporal` y un cuerpo que diga qué pruebas **no** se pudieron correr localmente.
