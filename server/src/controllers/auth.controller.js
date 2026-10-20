@@ -60,4 +60,15 @@ async function changePassword(req, res, next) {
     }
 }
 
-module.exports = { changePassword, registerStudent, login, loginMfa, setupMfa, confirmMfa };
+// POST /api/auth/set-initial-password  (token pwd_change) - { newPassword, confirmPassword }
+async function setInitialPassword(req, res, next) {
+    try {
+        const { newPassword, confirmPassword } = req.body || {};
+        const result = await authService.setInitialPassword({ userId: req.user.id, newPassword, confirmPassword });
+        res.json(result);
+    } catch (err) {
+        next(err);
+    }
+}
+
+module.exports = { setInitialPassword, changePassword, registerStudent, login, loginMfa, setupMfa, confirmMfa };

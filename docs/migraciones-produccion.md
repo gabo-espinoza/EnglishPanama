@@ -381,7 +381,7 @@ unset P TOKEN
 
 La respuesta trae el `classCode` y una `temporaryPassword` que **se muestra una sola vez**: anótala y entrégala al docente por un medio seguro. El código de TOTP dura 30 segundos; si el login falla, escribe uno nuevo.
 
-El docente iniciará sesión con esa contraseña temporal y, en su primer ingreso, vinculará su autenticador (obligatorio) y debería cambiar la contraseña con `POST /api/auth/change-password`.
+El docente iniciará sesión con esa contraseña temporal y, en su primer ingreso, **deberá crear su propia contraseña** (pantalla `/password/initial`; no obtiene sesión hasta hacerlo) y luego vinculará su autenticador (obligatorio). Esto requiere la migración de la sección 13.
 
 ## 9. Verificación funcional
 
@@ -389,7 +389,7 @@ Desde el navegador, en `http://150.136.50.253`:
 
 Como la tabla `users` está vacía, no hay cuentas previas: se prueba con las que se creen.
 
-1. **Docente:** crea uno (sección 8.1) e inicia sesión con la contraseña temporal. Debe aparecer la pantalla **"Protege tu cuenta"** (vinculación obligatoria del autenticador). Tras escanear el QR y escribir el código, entra a `/teacher`.
+1. **Docente:** crea uno (sección 8.1) e inicia sesión con la contraseña temporal. Primero debe aparecer **"Crea tu contraseña"**; al guardarla, aparece la pantalla **"Protege tu cuenta"** (vinculación obligatoria del autenticador). Tras escanear el QR y escribir el código, entra a `/teacher`.
 2. **Estudiante:** regístrate desde `/register` con el código de clase del docente. Debe entrar directo a `/student`.
 3. **Registro de docentes deshabilitado:** `POST /api/auth/register/teacher` responde 403. Las cuentas de docente las crea el gestor de accesos.
 
@@ -427,7 +427,7 @@ Lo correcto es que **no responda** (tiempo agotado o conexión rechazada). Si de
 
 **Bloqueo por intentos.** Hoy es de 3 intentos y 10 segundos, también para el personal de gestión. Es más laxo que lo ideal para cuentas de gestión; está registrado como decisión pendiente en `docs/specs/staff-fase-a.md`.
 
-**Contraseña temporal de los docentes.** Existe `POST /api/auth/change-password`, pero todavía no hay pantalla que la exija en el primer ingreso. Quien crea la cuenta conoce la contraseña temporal hasta que el docente la cambie.
+**Contraseña temporal de los docentes.** El primer ingreso exige crear una contraseña propia (`POST /api/auth/set-initial-password`, migración de la sección 13): la temporal deja de servir en cuanto se reemplaza. Hasta entonces, quien crea la cuenta la conoce.
 
 **Sin interfaz para el personal de gestión.** Las acciones de gestión (crear docentes, solicitar suspensiones, consultar la auditoría) son solo API por ahora.
 
@@ -469,6 +469,56 @@ El código se puede revertir sin tocar la base, porque la migración es compatib
 
 **No probado** (depende de tu entorno real): el firewall y la lista de seguridad de Oracle Cloud (si el puerto 3000 es alcanzable desde fuera), `pm2` en tu VM, los permisos de tu cuenta de SSH, y el comportamiento de una app de autenticación real en un celular. El estado de MySQL, de `users` y de nginx ya se verificó con tus salidas (sección 3.1).
 
+## 13. Migración incremental: cambio obligatorio de contraseña
+
+Este cambio agrega a `users` la columna `must_change_password` (`TINYINT(1) NOT NULL DEFAULT 0`). Vale `1` para los docentes que cree el gestor de accesos desde ahora; los usuarios existentes quedan en `0` y no notan nada. Archivo: `server/database/migrations/phase3-must-change-password.sql`. Es aditiva y repetible (comprueba `information_schema` antes del `ALTER`).
+
+> **Esta migración se aplica ANTES de desplegar el código.** El código nuevo lee `must_change_password` en el login y en cada petición autenticada; si la columna no existe, falla con `ER_BAD_FIELD_ERROR` y el login queda caído. El código viejo, en cambio, ignora la columna, así que migrar antes es seguro.
+
+Si estás haciendo la migración completa de las secciones 4 y 5, aplica esta justo después de `prod-upgrade-all.sql` y antes del despliegue (sección 7). Si la base ya estaba migrada, hazla por separado como sigue.
+
+**1. Respaldo — [VM-BD]** (mismo procedimiento de la sección 4)
+
+```bash
+mkdir -p ~/backups
+BACKUP=~/backups/englishpanama-$(date +%Y%m%d-%H%M).sql.gz
+sudo mysqldump --single-transaction --routines --triggers englishpanama | gzip > "$BACKUP"
+gunzip -t "$BACKUP" && echo "respaldo OK: $BACKUP"
+```
+
+Recomendado: copia el respaldo **fuera** de la VM (por ejemplo, con `scp` a tu PC).
+
+**2. Llevar el archivo a la VM-BD — [TU PC]** (dentro del clon del repositorio, con la rama que contiene el archivo)
+
+```bash
+scp server/database/migrations/phase3-must-change-password.sql TU_USUARIO@IP_VM_BD:~/phase3-must-change-password.sql
+```
+
+Igual que en la sección 5.1, si solo se entra a través de la VM-APP agrega `-o ProxyJump=TU_USUARIO@150.136.50.253`.
+
+**3. Aplicar — [VM-BD]** (es la base principal; el archivo usa `DATABASE()`, por eso se indica en el comando)
+
+```bash
+sudo mysql englishpanama < ~/phase3-must-change-password.sql && echo "MIGRACION OK"
+```
+
+**4. Verificar — [VM-BD]**
+
+```bash
+# La columna existe
+sudo mysql englishpanama -e "SHOW COLUMNS FROM users LIKE 'must_change_password';"
+
+# Los usuarios existentes quedan con 0
+sudo mysql englishpanama -e "SELECT must_change_password, COUNT(*) FROM users GROUP BY must_change_password;"
+#   esperado: solo la fila con valor 0 (ninguna con 1 hasta que se cree un docente nuevo)
+```
+
+Si la tabla `users` está vacía, la segunda consulta no imprime filas: es normal.
+
+**5. Desplegar** el código (sección 7) y comprobar el flujo con un docente nuevo (sección 9).
+
+**Rollback.** El código se revierte como en la sección 11. La columna se puede **dejar en su sitio**: es inofensiva para el código anterior (tiene valor por defecto y nadie la lee), así que no hace falta quitarla. Un docente que ya hubiera sido creado con la bandera en `1` entraría, bajo el código viejo, con su contraseña temporal. Solo si hubiera una razón para eliminarla, es `ALTER TABLE users DROP COLUMN must_change_password;` en la VM-BD (después de revertir el código).
+
 ## Lista de verificación
 
 - [ ] Verificación previa pegada y revisada (sección 3)
@@ -476,6 +526,7 @@ El código se puede revertir sin tocar la base, porque la migración es compatib
 - [ ] `prod-upgrade-all.sql` copiado a la VM-BD y aplicado (secciones 5.1 y 5.2)
 - [ ] Usuario `audit_writer` creado con la IP de la VM-APP (`10.0.0.186`), no con `%` (sección 5.3)
 - [ ] Verificaciones 5.4 correctas y **punto de control A** superado
+- [ ] `phase3-must-change-password.sql` aplicado en la VM-BD **antes** del despliegue; `SELECT must_change_password, COUNT(*) FROM users GROUP BY must_change_password;` muestra solo `0` (sección 13)
 - [ ] nginx envía `X-Forwarded-For $remote_addr` (sección 6.1) y `nginx -t` pasa antes de recargar
 - [ ] Desde fuera, `http://150.136.50.253:3000` **no** responde (sección 10)
 - [ ] `.env` actualizado: `NODE_ENV`, `TRUST_PROXY=true`, `STAFF_*`, `AUDIT_DB_*`; respaldo de `STAFF_MFA_KEY` fuera de la VM (sección 6)

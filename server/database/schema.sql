@@ -18,6 +18,7 @@ CREATE TABLE users (
     token_version INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Cambiarla invalida los tokens ya emitidos (revocacion)',
     failed_attempts       TINYINT UNSIGNED NOT NULL DEFAULT 0,
     locked_until          DATETIME NULL,
+    must_change_password  TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1 = el usuario debe crear su contrasena antes de recibir sesion',
     mfa_secret_enc        VARBINARY(255) NULL COMMENT 'Secreto TOTP activo, cifrado con AES-256-GCM (clave en env). NULL = MFA desactivado',
     mfa_pending_enc       VARBINARY(255) NULL COMMENT 'Secreto TOTP en vinculacion, pendiente de confirmar con un codigo',
     mfa_pending_expires_at DATETIME NULL,

@@ -1,10 +1,14 @@
+import { clearSession } from './session';
+
 // Error de la API: conserva el estado HTTP para que las pantallas decidan por el número
 // (429, 409, ...) y no leyendo el texto del mensaje, que está en español y puede cambiar.
 export class ApiError extends Error {
-    constructor(message, status) {
+    constructor(message, status, code) {
         super(message);
         this.name = 'ApiError';
         this.status = status;
+        // Código legible por máquina enviado por el servidor (opcional).
+        this.code = code;
     }
 }
 
@@ -22,7 +26,13 @@ export async function apiRequest(path, { method = 'GET', body, token } = {}) {
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-        throw new ApiError(data.error || 'Ocurrió un error inesperado.', response.status);
+        // Sesión vieja de un docente que aún debe reemplazar su contraseña temporal:
+        // se descarta y se envía al login, donde el flujo normal lo lleva a crearla.
+        if (response.status === 403 && data.code === 'PASSWORD_CHANGE_REQUIRED') {
+            clearSession();
+            window.location.assign('/login');
+        }
+        throw new ApiError(data.error || 'Ocurrió un error inesperado.', response.status, data.code);
     }
     return data;
 }

@@ -36,6 +36,17 @@ Cualquier error responde con este formato, con el codigo HTTP correspondiente:
 { "error": "Descripcion legible del problema." }
 ```
 
+Algunos errores agregan un campo `code`, un identificador estable que el cliente puede comparar sin
+depender del texto del mensaje:
+
+```json
+{ "error": "Debes crear tu contrasena antes de continuar.", "code": "PASSWORD_CHANGE_REQUIRED" }
+```
+
+`code` solo aparece en errores `4xx` que lo definen expresamente; si falta, el cliente se guia por el
+codigo HTTP. Codigos vigentes: `PASSWORD_CHANGE_REQUIRED` (`403`, la cuenta debe crear su contrasena antes
+de usar la plataforma) y `PASSWORD_ALREADY_SET` (`409`, la contrasena inicial ya fue creada).
+
 Codigos usados: `400` (datos invalidos), `401` (sin token o token invalido),
 `403` (sin permiso / funcion desactivada), `404` (no encontrado),
 `409` (conflicto, ej. usuario repetido o reto ya completado),
@@ -53,8 +64,9 @@ Codigos usados: `400` (datos invalidos), `401` (sin token o token invalido),
 Las cuentas de **docente no se crean por registro**: las crea el gestor de accesos con
 `POST /staff/teachers`, y el docente recibe su cuenta ya creada (usuario, contrasena temporal y codigo de
 clase). Esta ruta responde siempre `403` con `{ "error": "El registro de docentes esta deshabilitado: ..." }`,
-sin crear nada. En el primer inicio de sesion el docente vincula su autenticador (MFA obligatorio) y
-deberia cambiar la contrasena temporal (`POST /auth/change-password`).
+sin crear nada. En el primer inicio de sesion el docente **debe crear su propia contrasena**
+(`POST /auth/set-initial-password`, ver mas abajo) y despues vincula su autenticador (MFA obligatorio).
+La contrasena temporal deja de servir en cuanto la reemplaza.
 
 ### `POST /auth/register/student`
 
@@ -75,7 +87,7 @@ deberia cambiar la contrasena temporal (`POST /auth/change-password`).
 { "username": "string", "password": "string" }
 ```
 
-**Respuesta 200** (tres casos, segun la cuenta):
+**Respuesta 200** (cuatro casos, segun la cuenta):
 
 1. **Sin MFA y rol con MFA opcional (estudiante):** la sesion normal.
    ```json
@@ -91,15 +103,59 @@ deberia cambiar la contrasena temporal (`POST /auth/change-password`).
    ```json
    { "mfaSetupRequired": true, "enrollToken": "jwt", "expiresIn": 900 }
    ```
+4. **Docente recien creado por el gestor de accesos (`must_change_password = 1`):** se comprueba antes que
+   cualquier otro caso, incluido el MFA. No hay sesion; se entrega un token restringido de 15 minutos
+   (`typ: "pwd_change"`) que solo sirve en `POST /auth/set-initial-password`.
+   ```json
+   { "passwordChangeRequired": true, "passwordToken": "jwt", "expiresIn": 900 }
+   ```
 
 *Validaciones:* el `username` admite entre 3 y 30 caracteres (letras, numeros,
 punto, guion o guion bajo) y la contrasena entre 4 y 72 caracteres.
 `login` y `register` tienen limite de intentos (ver `docs/security.md`).
 
+### `POST /auth/set-initial-password` - token `pwd_change`
+
+Primer ingreso de un docente creado por el gestor de accesos: reemplaza la contrasena temporal por una
+propia. Solo acepta el token restringido que devuelve `POST /auth/login` (`Authorization: Bearer <passwordToken>`);
+una sesion normal, el reto de MFA o el token de vinculacion responden `401`. La ruta tiene el limite de
+intentos de autenticacion.
+
+**Body:**
+```json
+{ "newPassword": "string", "confirmPassword": "string" }
+```
+
+*Validaciones:* ambos campos son obligatorios; la contrasena nueva tiene entre 4 y 72 caracteres, debe
+coincidir con `confirmPassword` y ser distinta de la temporal. Queda en la auditoria
+(`user.password.initial_set`).
+
+**Respuesta 200:** el mismo resultado que el login tras acertar la contrasena, segun la cuenta. Para un
+docente sin autenticador es el token de vinculacion:
+```json
+{ "mfaSetupRequired": true, "enrollToken": "jwt", "expiresIn": 900 }
+```
+(con MFA activo devuelve `{ "mfaRequired": true, "mfaToken": "jwt", "expiresIn": 300 }`; en otro caso, la
+sesion `{ "token": "jwt", "role": "..." }`).
+
+El cambio sube la `token_version` de la cuenta: el `passwordToken` usado y cualquier sesion abierta con la
+contrasena temporal quedan **revocados**. El token no se puede reutilizar: un segundo uso posterior recibe `401`
+(la `token_version` ya no coincide). Si dos peticiones con el mismo token llegan a la vez, solo una gana y la
+otra recibe `401` o `409` (`409` solo si lee la fila antes de que el primer `UPDATE` se confirme).
+
+**Errores:** `400` faltan datos (o `newPassword`/`confirmPassword` no son texto), contrasena invalida, no coincide
+con `confirmPassword` o igual a la temporal; `401` token vencido, invalido o revocado, o cuenta no disponible;
+`429` cuenta bloqueada por intentos (el token sigue siendo valido; espera unos segundos y reintenta); `409` con
+`code: "PASSWORD_ALREADY_SET"` si el token aun coincide pero la contrasena ya fue creada (bandera en 0).
+
+> Mientras `must_change_password` siga en 1, **cualquier ruta protegida** con una sesion normal responde
+> `403` con `code: "PASSWORD_CHANGE_REQUIRED"` (por ejemplo, una sesion emitida antes de que se creara la
+> bandera para esa cuenta). El cliente descarta la sesion y lleva al login.
+
 ### `POST /auth/change-password` - sesion normal
 
-Cambio de contrasena **propio**. Pensado, sobre todo, para que un docente cambie la contrasena temporal con
-la que el gestor de accesos le creo la cuenta. Body `{ "currentPassword": "string", "newPassword": "string" }`.
+Cambio de contrasena **propio** y voluntario, con la contrasena actual. (La contrasena temporal de un docente
+nuevo se reemplaza con `POST /auth/set-initial-password`, no con esta ruta.) Body `{ "currentPassword": "string", "newPassword": "string" }`.
 
 La contrasena actual es obligatoria: una sesion robada no basta para quedarse con la cuenta. La nueva
 debe tener entre 4 y 72 caracteres y ser distinta de la actual. Un intento con la contrasena actual
@@ -437,8 +493,9 @@ transaccion. `409` si la solicitud ya fue resuelta.
 
 Body `{ "username", "displayName" }`. Crea la cuenta de docente y devuelve una
 `temporaryPassword` (se muestra una sola vez) y el `classCode`. Es la **unica** forma de crear una cuenta
-de docente (el registro esta deshabilitado). El docente entra con la contrasena temporal, vincula su
-autenticador (MFA obligatorio) y la cambia con `POST /auth/change-password`.
+de docente (el registro esta deshabilitado). El docente entra con la contrasena temporal, la reemplaza por una propia con
+`POST /auth/set-initial-password` (la cuenta nace con `must_change_password = 1`) y despues vincula su
+autenticador (MFA obligatorio).
 
 ### `GET /staff/analytics/dashboard` - solo `analyst`
 
