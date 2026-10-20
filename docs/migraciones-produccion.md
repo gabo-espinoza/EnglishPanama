@@ -312,11 +312,11 @@ Este cambio es independiente del despliegue y compatible con el código actual: 
 
 El despliegue se dispara solo al hacer push a `main` (los cambios que solo tocan `docs/**` o `*.md` no lo disparan).
 
-**Antes de empezar**, confirma que ya hiciste los pasos 4, 5 y 6, y que los PR pendientes (`registroEst-login` y `feat/teacher-mfa-enrollment`) ya están en `develop`.
+**Antes de empezar**, confirma que ya hiciste los pasos 4, 5 y 6, y que el PR #8 (MFA obligatorio para docentes, que ya incluye el trabajo de #7) ya está en `develop`.
 
 **[TU PC]**
 
-`main` está protegida (según `BRANCHING.md`): no se hace push directo. En GitHub, abre un Pull Request de `develop` hacia `main`, revísalo y mergéalo. Ese merge es lo que dispara el despliegue.
+Por convención no se hace push directo a `main` (hoy GitHub no tiene activada la protección de rama). En GitHub, abre un Pull Request de `develop` hacia `main`, revísalo y mergéalo. Ese merge es lo que dispara el despliegue.
 
 Sigue el despliegue en la pestaña **Actions** del repositorio. Termina reiniciando la API con `pm2 restart api`.
 
@@ -437,7 +437,7 @@ Lo correcto es que **no responda** (tiempo agotado o conexión rechazada). Si de
 
 El código se puede revertir sin tocar la base, porque la migración es compatible hacia atrás.
 
-1. **Código — [TU PC]:** deshaz el merge con un Pull Request de reversión hacia `main` (la rama está protegida); al mergearlo, el despliegue automático lo aplica.
+1. **Código — [TU PC]:** deshaz el merge con un Pull Request de reversión hacia `main` (por convención no se hace push directo a `main`); al mergearlo, el despliegue automático lo aplica.
    ```bash
    git checkout main && git pull origin main
    git checkout -b revert/migracion-develop
@@ -479,7 +479,7 @@ El código se puede revertir sin tocar la base, porque la migración es compatib
 - [ ] nginx envía `X-Forwarded-For $remote_addr` (sección 6.1) y `nginx -t` pasa antes de recargar
 - [ ] Desde fuera, `http://150.136.50.253:3000` **no** responde (sección 10)
 - [ ] `.env` actualizado: `NODE_ENV`, `TRUST_PROXY=true`, `STAFF_*`, `AUDIT_DB_*`; respaldo de `STAFF_MFA_KEY` fuera de la VM (sección 6)
-- [ ] PR pendientes en `develop`; merge `develop` → `main` y Actions en verde (sección 7)
+- [ ] PR #8 (MFA docente, que incluye #7) en `develop`; merge `develop` → `main` y Actions en verde (sección 7)
 - [ ] **Punto de control B** superado (`pm2` online, `/api/health` OK)
 - [ ] Cuentas `access_manager` y `auditor` creadas (sección 8) y primer docente creado (sección 8.1)
 - [ ] Verificación funcional (sección 9)
