@@ -1,6 +1,6 @@
 const express = require('express');
 const authController = require('../controllers/auth.controller');
-const { requireAuth, requireAuthOrEnroll } = require('../middleware/auth');
+const { requireAuth, requireAuthOrEnroll, requirePasswordToken } = require('../middleware/auth');
 const { authLimiter } = require('../middleware/rateLimiter');
 
 const router = express.Router();
@@ -24,6 +24,10 @@ router.post('/login/mfa', authLimiter, authController.loginMfa);
 
 // Cambio de contrasena propio: exige sesion normal y la contrasena actual.
 router.post('/change-password', authLimiter, requireAuth, authController.changePassword);
+
+// Contrasena inicial del docente creado por el gestor de accesos: solo acepta el token
+// restringido "pwd_change" que devuelve el login mientras must_change_password sea 1.
+router.post('/set-initial-password', authLimiter, requirePasswordToken, authController.setInitialPassword);
 
 // Vinculacion del autenticador: generar secreto + QR y confirmar con un codigo antes
 // de que el MFA quede activo. Acepta la sesion normal (MFA opcional) o el token de

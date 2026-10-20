@@ -65,7 +65,6 @@ async function authenticate(req, res, next, { allowEnroll, allowPasswordToken })
         // El rol se toma de la base, no del token: si cambio, manda la base.
         req.user = { id: user.id, role: user.role };
         req.enrollOnly = isEnroll;
-        req.passwordTokenOnly = isPasswordToken;
         return next();
     } catch (err) {
         return next(err);

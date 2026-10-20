@@ -75,6 +75,28 @@ function signEnrollToken(user) {
     );
 }
 
+// Token restringido del cambio obligatorio de contrasena (docente creado por el gestor de
+// accesos). Solo abre POST /auth/set-initial-password: requireAuth lo rechaza (typ distinto de
+// "user"). Mismo valor que el literal local de middleware/auth.js.
+const PASSWORD_TOKEN_TYP = 'pwd_change';
+const PASSWORD_TOKEN_MINUTES = 15;
+
+function signPasswordToken(user) {
+    return jwt.sign(
+        { id: user.id, typ: PASSWORD_TOKEN_TYP, tv: user.token_version || 0 },
+        process.env.JWT_SECRET,
+        { expiresIn: `${PASSWORD_TOKEN_MINUTES}m` }
+    );
+}
+
+function passwordChangeRequired(user) {
+    return {
+        passwordChangeRequired: true,
+        passwordToken: signPasswordToken(user),
+        expiresIn: PASSWORD_TOKEN_MINUTES * 60
+    };
+}
+
 function enrollmentRequired(user) {
     return {
         mfaSetupRequired: true,
@@ -85,7 +107,7 @@ function enrollmentRequired(user) {
 
 // Columnas que necesita el login y la verificacion del segundo factor.
 const LOGIN_COLUMNS = 'id, role, password_hash, is_active, token_version, failed_attempts, '
-    + 'locked_until, mfa_secret_enc, (locked_until > NOW()) AS is_locked';
+    + 'locked_until, mfa_secret_enc, must_change_password, (locked_until > NOW()) AS is_locked';
 
 // Suma un fallo y, al llegar a 3, bloquea 10 segundos (regla acordada de esta fase).
 async function registerFailedAttempt(user) {
@@ -241,8 +263,21 @@ async function login({ username, password }) {
         throw new AuthError('Usuario o contrasena incorrectos.', 401);
     }
 
-    // Primer factor correcto. Si la cuenta tiene MFA activo NO se entrega el JWT:
-    // se devuelve un reto corto para completar el codigo TOTP.
+    // Docente recien creado: antes de cualquier otro paso (incluido el MFA) debe crear su
+    // contrasena. No se entrega sesion ni reto, solo el token restringido del cambio.
+    if (Number(user.must_change_password) === 1) {
+        await clearLock(user);
+        return passwordChangeRequired(user);
+    }
+
+    return afterFirstFactor(user);
+}
+
+// Todo lo posterior al primer factor correcto (y a la bandera de cambio obligatorio). Lo
+// comparten login y setInitialPassword.
+async function afterFirstFactor(user) {
+    // Si la cuenta tiene MFA activo NO se entrega el JWT: se devuelve un reto corto para
+    // completar el codigo TOTP.
     if (user.mfa_secret_enc) {
         return {
             mfaRequired: true,
@@ -427,9 +462,61 @@ async function changePassword({ userId, currentPassword, newPassword }) {
     return { token: signToken({ ...user, token_version: Number(user.token_version) + 1 }), role: user.role };
 }
 
+// Fija la contrasena inicial de un docente creado por el gestor de accesos. Exige el token
+// "pwd_change" (lo valida el middleware, que ademas comprueba token_version). Anti-repeticion:
+// el UPDATE solo pasa si la bandera sigue en 1 y sube token_version, asi el token usado (y
+// cualquier sesion con la temporal) deja de servir; una peticion concurrente pierde con 409.
+async function setInitialPassword({ userId, newPassword, confirmPassword }) {
+    if (!newPassword || !confirmPassword) {
+        throw new AuthError('Faltan datos: newPassword y confirmPassword son obligatorios.');
+    }
+    validatePassword(newPassword);
+    if (newPassword !== confirmPassword) {
+        throw new AuthError('Las contrasenas no coinciden.', 400);
+    }
+
+    const [rows] = await pool.query(`SELECT ${LOGIN_COLUMNS} FROM users WHERE id = ?`, [userId]);
+    const user = rows[0];
+    if (!user || !user.is_active) {
+        throw new AuthError('La cuenta no esta disponible.', 401);
+    }
+    if (Number(user.is_locked) === 1) {
+        throw new AuthError('Demasiados intentos. Espera unos segundos.', 401);
+    }
+    if (Number(user.must_change_password) !== 1) {
+        throw new AuthError('La contrasena ya fue creada.', 409, 'PASSWORD_ALREADY_SET');
+    }
+    if (await bcrypt.compare(newPassword, user.password_hash)) {
+        throw new AuthError('La contrasena nueva debe ser distinta de la temporal.', 400);
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+    const [result] = await pool.query(
+        'UPDATE users SET password_hash = ?, must_change_password = 0, token_version = token_version + 1, '
+        + 'failed_attempts = 0, locked_until = NULL WHERE id = ? AND must_change_password = 1',
+        [passwordHash, user.id]
+    );
+    if (result.affectedRows !== 1) {
+        throw new AuthError('La contrasena ya fue creada.', 409, 'PASSWORD_ALREADY_SET');
+    }
+    await audit.record({
+        actorType: user.role, actorId: user.id, actorRole: user.role,
+        action: 'user.password.initial_set', outcome: 'ok'
+    });
+
+    return afterFirstFactor({
+        ...user,
+        token_version: Number(user.token_version) + 1,
+        failed_attempts: 0,
+        locked_until: null
+    });
+}
+
 module.exports = {
     registerStudent,
     changePassword,
+    setInitialPassword,
+    PASSWORD_TOKEN_TYP,
     login,
     verifyMfa,
     setupMfa,
