@@ -8,19 +8,23 @@ const assert = require('node:assert');
 // El limiter lee su limite al cargar su modulo: debe fijarse antes de requerir la app.
 process.env.AUTH_RATE_LIMIT_MAX ??= '200';
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcrypt');
 
 require('dotenv').config();
 
 const app = require('../src/app');
 const pool = require('../src/config/db');
 const { closeAuditPool } = require('../src/config/auditDb');
+const totp = require('../src/utils/totp');
+const mfaCrypto = require('../src/utils/mfaCrypto');
+const audit = require('../src/services/audit.service');
 
 let server;
 let baseUrl;
 let ready = false;
 
 const suffix = String(Date.now()).slice(-7);
-const created = { users: [], activities: [], challenges: [], moduleId: null, moduleCreated: false };
+const created = { users: [], activities: [], challenges: [], staff: [], moduleId: null, moduleCreated: false };
 
 // Se rellenan en test.before.
 let teacherA; // grado 3 -> A1.1
@@ -148,6 +152,7 @@ test.after(async () => {
         if (created.activities.length) {
             await pool.query('DELETE FROM activities WHERE id IN (?)', [created.activities]);
         }
+        if (created.staff.length) await pool.query('DELETE FROM staff_accounts WHERE id IN (?)', [created.staff]);
         if (created.moduleCreated) await pool.query('DELETE FROM modules WHERE id = ?', [created.moduleId]);
         if (created.users.length) {
             await pool.query('DELETE FROM students WHERE user_id IN (?)', [created.users]);
@@ -312,7 +317,8 @@ test('sin grado el reto diario responde como con el conjunto vacio (404)', async
 
 test('completar el reto diario usa el conjunto filtrado por nivel', async (t) => {
     if (!ready) { t.skip('sin MySQL'); return; }
-    // Mas de un reto por nivel: la eleccion no puede acertar el nivel por casualidad.
+    // Se comprueban dos estudiantes de niveles distintos: si el filtro fallara, al menos uno
+    // recibiria un reto de otro nivel, asi que el resultado no depende del azar.
     const extraA1 = await makeActivity('A1.1', { title: `Reto extra A1.1 ${suffix}` });
     const extraA2 = await makeActivity('A1.2', { title: `Reto extra A1.2 ${suffix}` });
     await seedChallenge(extraA1.questionIds[0], 900020);
@@ -556,4 +562,155 @@ test('los tokens restringidos (mfa_enroll, pwd_change) dan 401', async (t) => {
         assert.strictEqual((await put('/teacher/class/grade', tok, { grade: 3, confirm: true })).status, 401, typ);
     }
     assert.strictEqual((await gradeOf(id)).grade, null);
+});
+
+// ---- Docente sin fila en teachers ----
+
+test('un usuario docente sin fila en teachers recibe 404 en GET y PUT de la clase', async (t) => {
+    if (!ready) { t.skip('sin MySQL'); return; }
+    const id = await makeUser('teacher', `cg.t.sinfila.${suffix}`);
+    const tok = token(id, 'teacher');
+    const g = await get('/teacher/class', tok);
+    assert.strictEqual(g.status, 404);
+    assert.strictEqual((await g.json()).error, 'El docente no existe.');
+    const p = await put('/teacher/class/grade', tok, { grade: 3, confirm: true });
+    assert.strictEqual(p.status, 404);
+    assert.strictEqual((await p.json()).error, 'El docente no existe.');
+});
+
+// ---- Reinicio del grado por el gestor de cuentas ----
+
+const STAFF_PASSWORD = 'GestorPrueba12345';
+const MSG_REASON = 'El motivo debe tener entre 5 y 40 caracteres y no puede incluir |.';
+const staffReady = () => Boolean(process.env.STAFF_JWT_SECRET && process.env.STAFF_MFA_KEY);
+const staffCache = {};
+
+async function staffToken(prefix, role) {
+    if (staffCache[prefix]) return staffCache[prefix];
+    const secret = totp.generateSecret();
+    const username = `cg.${prefix}.${suffix}`;
+    const [r] = await pool.query(
+        'INSERT INTO staff_accounts (username, password_hash, role, mfa_secret_enc) VALUES (?, ?, ?, ?)',
+        [username, await bcrypt.hash(STAFF_PASSWORD, 10), role, mfaCrypto.encrypt(secret)]
+    );
+    created.staff.push(r.insertId);
+    const res = await fetch(`${baseUrl}/staff/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password: STAFF_PASSWORD, totp: totp.generateToken(secret) })
+    });
+    assert.strictEqual(res.status, 200, 'el login del personal debe funcionar');
+    staffCache[prefix] = (await res.json()).token;
+    return staffCache[prefix];
+}
+
+function resetGrade(id, tok, body) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (tok) headers.Authorization = `Bearer ${tok}`;
+    return fetch(`${baseUrl}/staff/teachers/${id}/reset-grade`, {
+        method: 'POST', headers, body: body === undefined ? undefined : JSON.stringify(body)
+    });
+}
+
+async function resetAuditRows(teacherId) {
+    const { rows } = await audit.list({ action: 'staff.teacher.reset_grade', limit: 200 });
+    return rows.filter((r) => r.target.startsWith(`teacher#${teacherId}:`));
+}
+
+test('reset-grade: sin token 401, auditor 403, tokens de plataforma 401', async (t) => {
+    if (!ready || !staffReady()) { t.skip('sin MySQL o claves de personal'); return; }
+    const id = await freshTeacher('rg1');
+    await pool.query('UPDATE teachers SET grade = 3, grade_locked_at = NOW() WHERE user_id = ?', [id]);
+    const body = { reason: 'eligio mal el grado' };
+    assert.strictEqual((await resetGrade(id, null, body)).status, 401);
+    assert.strictEqual((await resetGrade(id, await staffToken('aud', 'auditor'), body)).status, 403);
+    assert.strictEqual((await resetGrade(id, token(id, 'teacher'), body)).status, 401);
+    assert.strictEqual((await resetGrade(id, token(studentA, 'student'), body)).status, 401);
+    assert.strictEqual((await gradeOf(id)).grade, 3, 'ningun intento rechazado cambia el grado');
+    assert.strictEqual((await resetAuditRows(id)).length, 0);
+});
+
+test('reset-grade: id invalido 400; id inexistente o de un estudiante 404', async (t) => {
+    if (!ready || !staffReady()) { t.skip('sin MySQL o claves de personal'); return; }
+    const tok = await staffToken('acc', 'access_manager');
+    const body = { reason: 'eligio mal el grado' };
+    const bad = await resetGrade('abc', tok, body);
+    assert.strictEqual(bad.status, 400);
+    assert.strictEqual((await bad.json()).error, 'Identificador de docente invalido.');
+    assert.strictEqual((await resetGrade(0, tok, body)).status, 400);
+    const missing = await resetGrade(999999999, tok, body);
+    assert.strictEqual(missing.status, 404);
+    assert.strictEqual((await missing.json()).error, 'El docente no existe.');
+    assert.strictEqual((await resetGrade(studentA, tok, body)).status, 404);
+});
+
+test('reset-grade: motivo ausente, corto, largo o con | da 400 sin tocar el grado ni auditar', async (t) => {
+    if (!ready || !staffReady()) { t.skip('sin MySQL o claves de personal'); return; }
+    const tok = await staffToken('acc', 'access_manager');
+    const id = await freshTeacher('rg2');
+    await pool.query('UPDATE teachers SET grade = 4, grade_locked_at = NOW() WHERE user_id = ?', [id]);
+    const bodies = [
+        undefined, {}, { reason: '' }, { reason: '    ' }, { reason: 'abcd' }, { reason: 'a'.repeat(41) },
+        { reason: 'motivo | roto' }, { reason: 'motivo\nroto' }, { reason: 12345678 }
+    ];
+    for (const body of bodies) {
+        const res = await resetGrade(id, tok, body);
+        assert.strictEqual(res.status, 400, JSON.stringify(body));
+        assert.strictEqual((await res.json()).error, MSG_REASON);
+    }
+    const row = await gradeOf(id);
+    assert.strictEqual(row.grade, 4);
+    assert.ok(row.grade_locked_at);
+    assert.strictEqual((await resetAuditRows(id)).length, 0, 'sin fila de auditoria');
+});
+
+test('reset-grade: si el grado no esta declarado da 409 GRADE_NOT_SET', async (t) => {
+    if (!ready || !staffReady()) { t.skip('sin MySQL o claves de personal'); return; }
+    const tok = await staffToken('acc', 'access_manager');
+    const id = await freshTeacher('rg3');
+    const res = await resetGrade(id, tok, { reason: 'eligio mal el grado' });
+    assert.strictEqual(res.status, 409);
+    assert.strictEqual((await res.json()).code, 'GRADE_NOT_SET');
+    assert.strictEqual((await resetAuditRows(id)).length, 0);
+});
+
+test('reset-grade: exito, auditoria, nuevo grado y credenciales intactas', async (t) => {
+    if (!ready || !staffReady()) { t.skip('sin MySQL o claves de personal'); return; }
+    const tok = await staffToken('acc', 'access_manager');
+    const id = await freshTeacher('rg4');
+    const stu = await makeStudent('rg4', id);
+    const tokT = token(id, 'teacher');
+    assert.strictEqual((await put('/teacher/class/grade', tokT, { grade: 3, confirm: true })).status, 200);
+    await pool.query(
+        "UPDATE users SET password_hash = '$2b$10$hashdeprueba', mfa_secret_enc = 'enc-prueba', token_version = 0 WHERE id = ?", [id]);
+    const readCreds = async () => (await pool.query(
+        'SELECT password_hash, mfa_secret_enc, mfa_pending_enc, token_version FROM users WHERE id = ?', [id]))[0][0];
+    const before = await readCreds();
+    const [[{ username }]] = await pool.query('SELECT username FROM users WHERE id = ?', [id]);
+    const seen = await (await get('/activities/vocabulary', token(stu, 'student'))).json();
+    assert.ok(seen.some((a) => a.id === actA1.id));
+
+    const res = await resetGrade(id, tok, { reason: '  eligio mal el grado  ' });
+    assert.strictEqual(res.status, 200);
+    assert.deepStrictEqual(await res.json(), { id, username, gradeReset: true });
+
+    const row = await gradeOf(id);
+    assert.strictEqual(row.grade, null);
+    assert.strictEqual(row.grade_locked_at, null);
+    const rows = await resetAuditRows(id);
+    assert.strictEqual(rows.length, 1);
+    assert.strictEqual(rows[0].target, `teacher#${id}:${username}:motivo=eligio mal el grado`);
+    assert.strictEqual(rows[0].actor_role, 'access_manager');
+    assert.strictEqual(rows[0].outcome, 'ok');
+
+    assert.deepStrictEqual(await readCreds(), before, 'contrasena, MFA y token_version no cambian');
+    assert.strictEqual((await get('/teacher/class', tokT)).status, 200, 'la sesion del docente sigue valida');
+
+    // Sin grado sus estudiantes no ven actividades; al declarar otro grado ven el nuevo nivel.
+    assert.deepStrictEqual(await (await get('/activities/vocabulary', token(stu, 'student'))).json(), []);
+    assert.strictEqual((await put('/teacher/class/grade', tokT, { grade: 4, confirm: true })).status, 200);
+    const ids = (await (await get('/activities/vocabulary', token(stu, 'student'))).json()).map((a) => a.id);
+    assert.ok(ids.includes(actA2.id) && !ids.includes(actA1.id), 'ahora ven el nivel A1.2');
+
+    assert.strictEqual((await audit.verify()).ok, true, 'la cadena de auditoria sigue integra');
 });

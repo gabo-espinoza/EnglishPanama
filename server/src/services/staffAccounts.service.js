@@ -215,4 +215,54 @@ async function resetTeacherMfa({ teacherId, actorId }) {
     return { id, username: rows[0].username, mfaReset: true };
 }
 
-module.exports = { resetTeacherMfa, listAccounts, getAccount, createChangeRequest, listChangeRequests, decideChangeRequest, createTeacher };
+// --- Reinicio del grado de una clase (rol access_manager) ---
+
+// El docente declara el grado una sola vez. Si se equivoco, el gestor de accesos lo
+// reinicia (grado y fecha de bloqueo en NULL) para que el docente lo declare de nuevo.
+// No toca contrasena, MFA, sesiones ni el avance de los estudiantes. El motivo queda en
+// el target de la auditoria (VARCHAR(100), y record() ignora los errores): por eso se
+// limita a 40 caracteres, sin "|" (el hash de la auditoria une los campos con ese
+// separador) ni caracteres de control, y se valida ANTES de escribir nada.
+const MIN_REASON = 5;
+const MAX_REASON = 40;
+const REASON_INVALID = /[|\u0000-\u001f\u007f]/;
+const GRADE_NOT_SET_MSG = 'El grado de esta clase aun no ha sido declarado.';
+
+async function resetTeacherGrade({ teacherId, reason, actorId }) {
+    const id = Number(teacherId);
+    if (!Number.isInteger(id) || id <= 0) {
+        throw new AppError('Identificador de docente invalido.', 400);
+    }
+    const motivo = typeof reason === 'string' ? reason.trim() : '';
+    if (motivo.length < MIN_REASON || motivo.length > MAX_REASON || REASON_INVALID.test(motivo)) {
+        throw new AppError('El motivo debe tener entre 5 y 40 caracteres y no puede incluir |.', 400);
+    }
+
+    const [rows] = await pool.query(
+        "SELECT u.id, u.username, t.grade FROM users u JOIN teachers t ON t.user_id = u.id WHERE u.id = ? AND u.role = 'teacher'",
+        [id]
+    );
+    if (rows.length === 0) {
+        throw new AppError('El docente no existe.', 404);
+    }
+    if (rows[0].grade === null) {
+        throw new AppError(GRADE_NOT_SET_MSG, 409, 'GRADE_NOT_SET');
+    }
+
+    // La condicion grade IS NOT NULL evita reiniciar (y auditar) dos veces si hay carreras.
+    const [result] = await pool.query(
+        'UPDATE teachers SET grade = NULL, grade_locked_at = NULL WHERE user_id = ? AND grade IS NOT NULL',
+        [id]
+    );
+    if (result.affectedRows === 0) {
+        throw new AppError(GRADE_NOT_SET_MSG, 409, 'GRADE_NOT_SET');
+    }
+
+    await audit.record({
+        actorType: 'staff', actorId, actorRole: 'access_manager',
+        action: 'staff.teacher.reset_grade', target: `teacher#${id}:${rows[0].username}:motivo=${motivo}`, outcome: 'ok'
+    });
+    return { id, username: rows[0].username, gradeReset: true };
+}
+
+module.exports = { resetTeacherMfa, resetTeacherGrade, listAccounts, getAccount, createChangeRequest, listChangeRequests, decideChangeRequest, createTeacher };
