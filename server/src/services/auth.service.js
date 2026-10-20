@@ -116,9 +116,12 @@ function codeMatches(encryptedSecret, code) {
 }
 
 class AuthError extends Error {
-    constructor(message, status = 400) {
+    // apiCode es un codigo legible por maquina para el cliente. No se llama `code`
+    // porque los errores de MySQL y de Node ya usan ese campo (ER_DUP_ENTRY, etc.).
+    constructor(message, status = 400, apiCode) {
         super(message);
         this.status = status;
+        this.apiCode = apiCode;
     }
 }
 
