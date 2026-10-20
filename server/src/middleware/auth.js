@@ -1,10 +1,14 @@
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
 
+// Token restringido que recibe un docente recien creado: solo sirve para fijar su
+// contrasena inicial. Mismo valor que PASSWORD_TOKEN_TYP en auth.service.js.
+const PASSWORD_TOKEN_TYP = 'pwd_change';
+
 // Zero trust: ademas de verificar la firma del JWT, en CADA peticion se revalida
 // la cuenta contra la base. Si la cuenta no existe, esta desactivada o su version
 // de token cambio, el token deja de servir aunque no haya expirado.
-async function authenticate(req, res, next, { allowEnroll }) {
+async function authenticate(req, res, next, { allowEnroll, allowPasswordToken }) {
     const authHeader = req.headers.authorization || '';
     const [scheme, token] = authHeader.split(' ');
 
@@ -21,15 +25,22 @@ async function authenticate(req, res, next, { allowEnroll }) {
 
     // El token de plataforma se firma sin `typ` (o con "user"). Cualquier otro `typ`
     // se rechaza aqui: el reto de MFA ("mfa_pending") NO debe abrir rutas protegidas.
-    // El token de vinculacion ("mfa_enroll") solo se acepta donde se pide expresamente.
+    // El token de vinculacion ("mfa_enroll") y el de contrasena inicial ("pwd_change")
+    // solo se aceptan donde se piden expresamente.
     const isEnroll = payload.typ === 'mfa_enroll';
-    if (payload.typ && payload.typ !== 'user' && !(allowEnroll && isEnroll)) {
+    const isPasswordToken = payload.typ === PASSWORD_TOKEN_TYP;
+    // La ruta del cambio inicial acepta UNICAMENTE el token restringido.
+    if (allowPasswordToken && !isPasswordToken) {
+        return res.status(401).json({ error: 'Token invalido o expirado.' });
+    }
+    if (payload.typ && payload.typ !== 'user'
+        && !(allowEnroll && isEnroll) && !(allowPasswordToken && isPasswordToken)) {
         return res.status(401).json({ error: 'Token invalido o expirado.' });
     }
 
     try {
         const [rows] = await pool.query(
-            'SELECT id, role, is_active, token_version FROM users WHERE id = ?',
+            'SELECT id, role, is_active, token_version, must_change_password FROM users WHERE id = ?',
             [payload.id]
         );
         const user = rows[0];
@@ -42,9 +53,19 @@ async function authenticate(req, res, next, { allowEnroll }) {
             return res.status(401).json({ error: 'Token revocado. Vuelve a iniciar sesion.' });
         }
 
+        // Un docente recien creado debe fijar su contrasena antes de usar la plataforma.
+        // La ruta del cambio inicial (token restringido) es justo para quien tiene la bandera.
+        if (!allowPasswordToken && Number(user.must_change_password) === 1) {
+            return res.status(403).json({
+                error: 'Debes crear tu contrasena antes de continuar.',
+                code: 'PASSWORD_CHANGE_REQUIRED'
+            });
+        }
+
         // El rol se toma de la base, no del token: si cambio, manda la base.
         req.user = { id: user.id, role: user.role };
         req.enrollOnly = isEnroll;
+        req.passwordTokenOnly = isPasswordToken;
         return next();
     } catch (err) {
         return next(err);
@@ -62,6 +83,11 @@ function requireAuthOrEnroll(req, res, next) {
     return authenticate(req, res, next, { allowEnroll: true });
 }
 
+// Solo para el cambio de contrasena inicial: exige el token restringido "pwd_change".
+function requirePasswordToken(req, res, next) {
+    return authenticate(req, res, next, { allowEnroll: false, allowPasswordToken: true });
+}
+
 // Se usa despues de requireAuth: requireRole('teacher'), requireRole('student').
 function requireRole(role) {
     return (req, res, next) => {
@@ -72,4 +98,4 @@ function requireRole(role) {
     };
 }
 
-module.exports = { requireAuth, requireAuthOrEnroll, requireRole };
+module.exports = { requireAuth, requireAuthOrEnroll, requirePasswordToken, requireRole };
