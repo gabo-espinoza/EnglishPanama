@@ -12,7 +12,8 @@ export default function Login() {
     const [error, setError] = useState(location.state?.notice || '');
     const [loading, setLoading] = useState(false);
     // Si la cuenta tiene MFA, el primer paso devuelve un reto (mfaToken) y no una sesion.
-    const [mfaToken, setMfaToken] = useState(null);
+    // También llega por el estado del router desde "Crea tu contraseña" (docente que ya tenía MFA).
+    const [mfaToken, setMfaToken] = useState(location.state?.mfaToken || null);
     const [code, setCode] = useState('');
     const navigate = useNavigate();
 
@@ -30,6 +31,12 @@ export default function Login() {
         setLoading(true);
         try {
             const result = await login(username, password);
+            // Docente con contraseña temporal: debe crear la suya antes de continuar.
+            // El token viaja en memoria (estado del router), nunca en localStorage.
+            if (result.passwordChangeRequired) {
+                navigate('/password/initial', { replace: true, state: { passwordToken: result.passwordToken } });
+                return;
+            }
             if (result.mfaRequired) {
                 setMfaToken(result.mfaToken);
                 setPassword('');
