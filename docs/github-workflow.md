@@ -72,7 +72,7 @@ Un push a `main` que solo modifique archivos de documentacion (`docs/**` o `*.md
 
 - **Nadie edita archivos directo en la VM.** Cualquier cambio manual ahi se pierde en el proximo despliegue (el `rsync` usa `--delete`), y genera errores imposibles de explicar. Si hay que tocar algo de infraestructura (no de codigo), se coordina con Gabriel.
 - **`develop` siempre tiene que quedar en un estado que se pueda consolidar a `main`.** Un PR que rompe el build es prioridad arreglarlo antes de seguir con otra cosa.
-- **Las migraciones de base de datos son manuales, por ahora.** Si un cambio requiere modificar `schema.sql`, hay que avisarlo en el PR - alguien con acceso a la VM de la base lo aplica a mano (esto se puede automatizar mas adelante si hace falta).
+- **Las migraciones de base de datos son manuales, por ahora.** Si un cambio requiere modificar `schema.sql`, hay que avisarlo en el PR - alguien con acceso a la VM de la base lo aplica a mano (esto se puede automatizar mas adelante si hace falta). La guia paso a paso, con los comandos de cada VM, esta en [docs/migraciones-produccion.md](migraciones-produccion.md).
 
 ## 8. Si algo se rompe en produccion despues de un merge a `main`
 
