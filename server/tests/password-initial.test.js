@@ -4,6 +4,9 @@
 // Se omiten solas si no hay MySQL, JWT_SECRET o STAFF_MFA_KEY.
 const test = require('node:test');
 const assert = require('node:assert');
+// Este archivo hace muchas llamadas de autenticacion que fallan a proposito: sube el limite
+// (el limiter lo lee al cargar su modulo, asi que debe fijarse antes de requerir la app).
+process.env.AUTH_RATE_LIMIT_MAX ??= '200';
 const bcrypt = require('bcrypt');
 const mfaCrypto = require('../src/utils/mfaCrypto');
 const totp = require('../src/utils/totp');
@@ -95,6 +98,12 @@ test('un pwd_change no abre rutas con requireAuthOrEnroll', async () => {
     assert.strictEqual(res.status, 401);
 });
 
+test('un pwd_change vencido no abre la ruta del cambio inicial', async () => {
+    const expired = jwt.sign({ id: 1, typ: 'pwd_change', tv: 0 }, process.env.JWT_SECRET, { expiresIn: -10 });
+    const res = await miniGet('/pwd', expired);
+    assert.strictEqual(res.status, 401);
+});
+
 test('un mfa_enroll no abre la ruta del cambio inicial', async () => {
     const res = await miniGet('/pwd', signTyp('mfa_enroll'));
     assert.strictEqual(res.status, 401);
@@ -160,7 +169,7 @@ const apiGet = (path, token) =>
 test('una sesion valida con must_change_password=1 recibe 403 con code', async (t) => {
     if (!ready) { t.skip('sin MySQL o claves'); return; }
     const { token } = await sessionFor(`prof.flag1.${suffix}`);
-    for (const path of ['/api/users/me', '/api/auth/change-password']) {
+    for (const path of ['/api/users/me', '/api/teacher/students']) {
         const res = await apiGet(path, token);
         assert.strictEqual(res.status, 403, path);
         const body = await res.json();
@@ -292,6 +301,8 @@ test('set-initial-password rechaza entradas invalidas sin cambiar nada', async (
         { name: 'distintas', body: { newPassword: NEW_PW, confirmPassword: 'Otra-Clave-1' }, msg: 'Las contrasenas no coinciden.' },
         { name: 'vacia', body: { newPassword: '', confirmPassword: '' } },
         { name: 'sin cuerpo', body: {} },
+        { name: 'numeros en vez de texto', body: { newPassword: 12345, confirmPassword: 12345 } },
+        { name: 'arreglos en vez de texto', body: { newPassword: ['a', 'b'], confirmPassword: ['a', 'b'] } },
         { name: 'de mas de 72', body: { newPassword: 'x'.repeat(73), confirmPassword: 'x'.repeat(73) } }
     ];
     for (const c of cases) {

@@ -467,7 +467,9 @@ async function changePassword({ userId, currentPassword, newPassword }) {
 // el UPDATE solo pasa si la bandera sigue en 1 y sube token_version, asi el token usado (y
 // cualquier sesion con la temporal) deja de servir; una peticion concurrente pierde con 409.
 async function setInitialPassword({ userId, newPassword, confirmPassword }) {
-    if (!newPassword || !confirmPassword) {
+    // Solo texto: un numero o un arreglo no debe llegar a bcrypt (500).
+    if (typeof newPassword !== 'string' || typeof confirmPassword !== 'string'
+        || !newPassword || !confirmPassword) {
         throw new AuthError('Faltan datos: newPassword y confirmPassword son obligatorios.');
     }
     validatePassword(newPassword);
@@ -481,7 +483,7 @@ async function setInitialPassword({ userId, newPassword, confirmPassword }) {
         throw new AuthError('La cuenta no esta disponible.', 401);
     }
     if (Number(user.is_locked) === 1) {
-        throw new AuthError('Demasiados intentos. Espera unos segundos.', 401);
+        throw new AuthError('Demasiados intentos. Espera unos segundos.', 429);
     }
     if (Number(user.must_change_password) !== 1) {
         throw new AuthError('La contrasena ya fue creada.', 409, 'PASSWORD_ALREADY_SET');
