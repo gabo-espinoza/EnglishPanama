@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Fondo minimalista global */
+body {
+  background-color: #f3f6f9;
+  min-height: 100vh;
+  margin: 0;
+  font-family: 'Poppins', sans-serif;
+  color: #1a1a1a;
+}
+
+@layer components {
+  .auth-card {
+    @apply bg-white w-full max-w-md p-8 sm:p-10 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100;
+  }
+
+  /* Campos y botón de login y registro */
+  .auth-input {
+    @apply w-full px-4 py-3 rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all duration-200 outline-none text-sm;
+  }
+
+  .auth-button {
+    @apply w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-lg transition-colors duration-200 shadow-sm hover:shadow text-sm;
+  }
+}
