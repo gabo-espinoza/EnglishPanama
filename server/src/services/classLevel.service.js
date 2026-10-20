@@ -12,4 +12,11 @@ async function getClassLevelForStudent(studentId) {
     return levelForGrade(rows[0].grade);
 }
 
-module.exports = { getClassLevelForStudent };
+// Nivel (A1.x) de la clase del docente, o null si aun no declaro grado (o no existe).
+async function getClassLevelForTeacher(teacherId) {
+    const [rows] = await pool.query('SELECT grade FROM teachers WHERE user_id = ?', [teacherId]);
+    if (rows.length === 0) return null;
+    return levelForGrade(rows[0].grade);
+}
+
+module.exports = { getClassLevelForStudent, getClassLevelForTeacher };

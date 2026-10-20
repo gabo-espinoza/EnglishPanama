@@ -157,7 +157,7 @@ test.after(async () => {
     } catch (err) {
         console.error('Fallo la limpieza de class-grade.test.js:', err.message);
     }
-    server.close();
+    server?.close();
     try { await pool.end(); } catch { /* sin conexiones */ }
     try { await closeAuditPool(); } catch { /* sin conexiones */ }
 });
@@ -312,16 +312,24 @@ test('sin grado el reto diario responde como con el conjunto vacio (404)', async
 
 test('completar el reto diario usa el conjunto filtrado por nivel', async (t) => {
     if (!ready) { t.skip('sin MySQL'); return; }
-    const res = await post('/daily-challenge/complete', token(studentA, 'student'), {});
-    assert.strictEqual(res.status, 201);
-    const [rows] = await pool.query(
-        `SELECT a.level FROM daily_completions dc
-         JOIN daily_challenges ch ON ch.id = dc.challenge_id
-         JOIN questions q ON q.id = ch.question_id
-         JOIN activities a ON a.id = q.activity_id
-         WHERE dc.student_id = ?`, [studentA]);
-    assert.strictEqual(rows.length, 1);
-    assert.strictEqual(rows[0].level, 'A1.1');
+    // Mas de un reto por nivel: la eleccion no puede acertar el nivel por casualidad.
+    const extraA1 = await makeActivity('A1.1', { title: `Reto extra A1.1 ${suffix}` });
+    const extraA2 = await makeActivity('A1.2', { title: `Reto extra A1.2 ${suffix}` });
+    await seedChallenge(extraA1.questionIds[0], 900020);
+    await seedChallenge(extraA2.questionIds[0], 900021);
+
+    for (const [student, level] of [[studentA, 'A1.1'], [studentB, 'A1.2']]) {
+        const res = await post('/daily-challenge/complete', token(student, 'student'), {});
+        assert.strictEqual(res.status, 201);
+        const [rows] = await pool.query(
+            `SELECT a.level FROM daily_completions dc
+             JOIN daily_challenges ch ON ch.id = dc.challenge_id
+             JOIN questions q ON q.id = ch.question_id
+             JOIN activities a ON a.id = q.activity_id
+             WHERE dc.student_id = ?`, [student]);
+        assert.strictEqual(rows.length, 1);
+        assert.strictEqual(rows[0].level, level);
+    }
     const again = await post('/daily-challenge/complete', token(studentA, 'student'), {});
     assert.strictEqual(again.status, 409);
 });
@@ -389,4 +397,163 @@ test('/users/me trae classGrade y classLevel y conserva level numerico de XP', a
     const tC = await (await get('/users/me', token(teacherC, 'teacher'))).json();
     assert.strictEqual(tC.classGrade, null);
     assert.strictEqual(tC.classLevel, null);
+});
+
+// ---- Declarar el grado (docente) ----
+
+function put(path, tok, body) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (tok) headers.Authorization = `Bearer ${tok}`;
+    return fetch(`${baseUrl}${path}`, { method: 'PUT', headers, body: JSON.stringify(body) });
+}
+
+async function gradeOf(teacherId) {
+    const [rows] = await pool.query('SELECT grade, grade_locked_at FROM teachers WHERE user_id = ?', [teacherId]);
+    return rows[0];
+}
+
+// Docente nuevo sin grado para cada prueba que lo declara.
+let freshCount = 0;
+async function freshTeacher(name) {
+    freshCount += 1;
+    return makeTeacher(`d${name}`, `F${freshCount}`, null);
+}
+
+const MSG_CONFIRM = 'Debes confirmar que entiendes que el grado no se puede cambiar.';
+const MSG_GRADE = 'El grado debe ser 3, 4 o 5.';
+const MSG_LOCKED = 'El grado ya fue declarado y no se puede cambiar. Si fue un error, pide ayuda al gestor de cuentas.';
+
+test('GET /teacher/class y PUT /teacher/class/grade sin token dan 401', async () => {
+    const g = await fetch(`${baseUrl}/teacher/class`);
+    assert.strictEqual(g.status, 401);
+    const p = await put('/teacher/class/grade', null, { grade: 3, confirm: true });
+    assert.strictEqual(p.status, 401);
+});
+
+test('GET /teacher/class antes y despues de declarar', async (t) => {
+    if (!ready) { t.skip('sin MySQL'); return; }
+    const id = await freshTeacher('get');
+    const tok = token(id, 'teacher');
+    const before = await (await get('/teacher/class', tok)).json();
+    assert.deepStrictEqual(before, {
+        displayName: 'Docente dget',
+        classCode: `F${freshCount}${suffix}`,
+        classGrade: null,
+        classLevel: null,
+        gradeLocked: false,
+        grades: [
+            { grade: 3, level: 'A1.1' },
+            { grade: 4, level: 'A1.2' },
+            { grade: 5, level: 'A1.3' }
+        ]
+    });
+    const res = await put('/teacher/class/grade', tok, { grade: 4, confirm: true });
+    assert.strictEqual(res.status, 200);
+    const after = await (await get('/teacher/class', tok)).json();
+    assert.strictEqual(after.classGrade, 4);
+    assert.strictEqual(after.classLevel, 'A1.2');
+    assert.strictEqual(after.gradeLocked, true);
+});
+
+test('la primera declaracion funciona para los grados 3, 4 y 5', async (t) => {
+    if (!ready) { t.skip('sin MySQL'); return; }
+    for (const [grade, level] of [[3, 'A1.1'], [4, 'A1.2'], [5, 'A1.3']]) {
+        const id = await freshTeacher(`first${grade}`);
+        const res = await put('/teacher/class/grade', token(id, 'teacher'), { grade, confirm: true });
+        assert.strictEqual(res.status, 200);
+        const body = await res.json();
+        assert.strictEqual(body.classGrade, grade);
+        assert.strictEqual(body.classLevel, level);
+        assert.strictEqual(body.gradeLocked, true);
+        assert.strictEqual((await gradeOf(id)).grade, grade);
+    }
+});
+
+test('un segundo intento (otro grado o el mismo) da 409 GRADE_LOCKED y no cambia el grado', async (t) => {
+    if (!ready) { t.skip('sin MySQL'); return; }
+    const id = await freshTeacher('lock');
+    const tok = token(id, 'teacher');
+    assert.strictEqual((await put('/teacher/class/grade', tok, { grade: 4, confirm: true })).status, 200);
+    for (const grade of [5, 4]) {
+        const res = await put('/teacher/class/grade', tok, { grade, confirm: true });
+        assert.strictEqual(res.status, 409);
+        const body = await res.json();
+        assert.strictEqual(body.code, 'GRADE_LOCKED');
+        assert.strictEqual(body.error, MSG_LOCKED);
+        assert.strictEqual((await gradeOf(id)).grade, 4);
+    }
+});
+
+test('un docente con grado ya sembrado tambien recibe 409', async (t) => {
+    if (!ready) { t.skip('sin MySQL'); return; }
+    const res = await put('/teacher/class/grade', token(teacherA, 'teacher'), { grade: 5, confirm: true });
+    assert.strictEqual(res.status, 409);
+    assert.strictEqual((await gradeOf(teacherA)).grade, 3);
+});
+
+test('confirm distinto de true da 400 y no escribe nada', async (t) => {
+    if (!ready) { t.skip('sin MySQL'); return; }
+    const id = await freshTeacher('conf');
+    const tok = token(id, 'teacher');
+    for (const body of [{ grade: 3 }, { grade: 3, confirm: false }, { grade: 3, confirm: 'true' }, { grade: 3, confirm: 1 }]) {
+        const res = await put('/teacher/class/grade', tok, body);
+        assert.strictEqual(res.status, 400, JSON.stringify(body));
+        assert.strictEqual((await res.json()).error, MSG_CONFIRM);
+    }
+    const row = await gradeOf(id);
+    assert.strictEqual(row.grade, null);
+    assert.strictEqual(row.grade_locked_at, null);
+});
+
+test('grados invalidos dan 400 y no escriben nada', async (t) => {
+    if (!ready) { t.skip('sin MySQL'); return; }
+    const id = await freshTeacher('inv');
+    const tok = token(id, 'teacher');
+    const bodies = [
+        { grade: '4', confirm: true }, { grade: 4.5, confirm: true }, { grade: true, confirm: true },
+        { grade: 0, confirm: true }, { grade: 6, confirm: true }, { grade: null, confirm: true },
+        { confirm: true }
+    ];
+    for (const body of bodies) {
+        const res = await put('/teacher/class/grade', tok, body);
+        assert.strictEqual(res.status, 400, JSON.stringify(body));
+        assert.strictEqual((await res.json()).error, MSG_GRADE);
+    }
+    const row = await gradeOf(id);
+    assert.strictEqual(row.grade, null);
+    assert.strictEqual(row.grade_locked_at, null);
+});
+
+test('dos peticiones simultaneas con grados distintos: una 200, otra 409, gana la primera', async (t) => {
+    if (!ready) { t.skip('sin MySQL'); return; }
+    const id = await freshTeacher('race');
+    const tok = token(id, 'teacher');
+    const [r3, r5] = await Promise.all([
+        put('/teacher/class/grade', tok, { grade: 3, confirm: true }),
+        put('/teacher/class/grade', tok, { grade: 5, confirm: true })
+    ]);
+    assert.deepStrictEqual([r3.status, r5.status].sort(), [200, 409]);
+    const winner = r3.status === 200 ? 3 : 5;
+    assert.strictEqual((await gradeOf(id)).grade, winner);
+    const loser = r3.status === 200 ? r5 : r3;
+    assert.strictEqual((await loser.json()).code, 'GRADE_LOCKED');
+});
+
+test('un estudiante en las rutas de clase recibe 403', async (t) => {
+    if (!ready) { t.skip('sin MySQL'); return; }
+    const tok = token(studentC, 'student');
+    assert.strictEqual((await get('/teacher/class', tok)).status, 403);
+    assert.strictEqual((await put('/teacher/class/grade', tok, { grade: 3, confirm: true })).status, 403);
+    assert.strictEqual((await gradeOf(teacherC)).grade, null);
+});
+
+test('los tokens restringidos (mfa_enroll, pwd_change) dan 401', async (t) => {
+    if (!ready) { t.skip('sin MySQL'); return; }
+    const id = await freshTeacher('restr');
+    for (const typ of ['mfa_enroll', 'pwd_change']) {
+        const tok = jwt.sign({ id, role: 'teacher', tv: 0, typ }, process.env.JWT_SECRET, { expiresIn: '10m' });
+        assert.strictEqual((await get('/teacher/class', tok)).status, 401, typ);
+        assert.strictEqual((await put('/teacher/class/grade', tok, { grade: 3, confirm: true })).status, 401, typ);
+    }
+    assert.strictEqual((await gradeOf(id)).grade, null);
 });

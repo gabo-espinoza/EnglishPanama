@@ -1,13 +1,8 @@
 const pool = require('../config/db');
 const { levelForXp } = require('./xp.service');
-const { levelForGrade } = require('../config/classLevels');
-
-// Nivel (A1.x) actual de la clase del docente, o null si aun no declaro grado.
-async function getClassLevelForTeacher(teacherId) {
-    const [rows] = await pool.query('SELECT grade FROM teachers WHERE user_id = ?', [teacherId]);
-    if (rows.length === 0) return null;
-    return levelForGrade(rows[0].grade);
-}
+const { GRADE_LEVELS, isValidGrade, levelForGrade } = require('../config/classLevels');
+const { getClassLevelForTeacher } = require('./classLevel.service');
+const AppError = require('../utils/AppError');
 
 // Panel docente: lista de estudiantes de la clase del docente autenticado,
 // con nivel, XP, actividades completadas y promedio (%) por modulo.
@@ -121,4 +116,52 @@ async function getDifficultTopics(teacherId, limit = 10) {
     }));
 }
 
-module.exports = { getStudents, getDifficultTopics };
+// Datos de la clase del docente: nombre, codigo, grado declarado (o null) y los grados posibles.
+async function getClass(teacherId) {
+    const [rows] = await pool.query(
+        'SELECT display_name, class_code, grade, grade_locked_at FROM teachers WHERE user_id = ?',
+        [teacherId]
+    );
+    if (rows.length === 0) {
+        throw new AppError('El docente no existe.', 404);
+    }
+    const row = rows[0];
+    return {
+        displayName: row.display_name,
+        classCode: row.class_code,
+        classGrade: row.grade,
+        classLevel: levelForGrade(row.grade),
+        gradeLocked: row.grade_locked_at !== null,
+        grades: Object.entries(GRADE_LEVELS).map(([grade, level]) => ({ grade: Number(grade), level }))
+    };
+}
+
+// Declara el grado de la clase una sola vez. La escritura es atomica (UPDATE condicionado a
+// grade IS NULL): si dos peticiones compiten, solo una cambia filas y la otra recibe 409.
+async function declareGrade(teacherId, { grade, confirm } = {}) {
+    if (confirm !== true) {
+        throw new AppError('Debes confirmar que entiendes que el grado no se puede cambiar.', 400);
+    }
+    if (!isValidGrade(grade)) {
+        throw new AppError('El grado debe ser 3, 4 o 5.', 400);
+    }
+
+    const [result] = await pool.query(
+        'UPDATE teachers SET grade = ?, grade_locked_at = CURRENT_TIMESTAMP WHERE user_id = ? AND grade IS NULL',
+        [grade, teacherId]
+    );
+    if (result.affectedRows === 0) {
+        const [rows] = await pool.query('SELECT 1 FROM teachers WHERE user_id = ?', [teacherId]);
+        if (rows.length === 0) {
+            throw new AppError('El docente no existe.', 404);
+        }
+        throw new AppError(
+            'El grado ya fue declarado y no se puede cambiar. Si fue un error, pide ayuda al gestor de cuentas.',
+            409,
+            'GRADE_LOCKED'
+        );
+    }
+    return getClass(teacherId);
+}
+
+module.exports = { getStudents, getDifficultTopics, getClass, declareGrade };

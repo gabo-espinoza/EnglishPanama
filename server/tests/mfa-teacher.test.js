@@ -131,7 +131,7 @@ test('un docente sin MFA no recibe sesion: recibe un token de vinculacion', asyn
 
 test('el token de vinculacion NO abre rutas protegidas (401)', async (t) => {
     if (!ready) { t.skip('sin MySQL o claves'); return; }
-    for (const url of ['/users/me', '/teacher/students', '/teacher/difficult-topics']) {
+    for (const url of ['/users/me', '/teacher/students', '/teacher/difficult-topics', '/teacher/class']) {
         const res = await call('GET', url, { token: enrollToken });
         assert.strictEqual(res.status, 401, `${url} no debe aceptar el token de vinculacion`);
     }
