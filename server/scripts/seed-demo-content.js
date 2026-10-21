@@ -5,14 +5,18 @@
 //   node scripts/seed-demo-content.js
 //
 // Crea (de forma idempotente) los tres modulos del proyecto (vocabulary,
-// grammar y reading) con actividades y preguntas de demostracion. Si un
-// modulo o una actividad ya existe, no lo duplica; solo agrega las preguntas
-// cuando la actividad todavia no tiene ninguna.
+// grammar y reading) con actividades y preguntas de demostracion de los tres
+// niveles (A1.1, A1.2 y A1.3). Todas se marcan is_example = 1: son ejemplos,
+// no contenido oficial. Si un modulo o una actividad (modulo, titulo, nivel)
+// ya existe, no lo duplica; solo agrega las preguntas cuando la actividad
+// todavia no tiene ninguna.
 //
 // Las respuestas correctas (correct_answer) se guardan SOLO en el servidor;
 // el endpoint GET /activities/:id/questions nunca las devuelve.
 //
-// Solo para desarrollo/demostracion: se niega a correr con NODE_ENV=production.
+// Solo para desarrollo/demostracion: con NODE_ENV=production se niega a correr, salvo
+// que el comando incluya --allow-production (indicador de linea de comandos; ninguna
+// variable de entorno lo habilita).
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
@@ -24,6 +28,7 @@ const MODULES = [
     { slug: 'reading', name: 'Reading' }
 ];
 
+// Las actividades sin `level` son A1.1; todas son de ejemplo (is_example = 1).
 const ACTIVITIES = [
     // --- Vocabulary ---
     {
@@ -103,12 +108,99 @@ const ACTIVITIES = [
             { topic: 'reading: family', prompt: 'What is his mother s job?', options: ['Teacher', 'Doctor', 'Nurse'], correctAnswer: 'Nurse' },
             { topic: 'reading: family', prompt: 'Where do they have lunch on Sunday?', options: ['At school', 'At a restaurant', 'At their grandmother s house'], correctAnswer: 'At their grandmother s house' }
         ]
+    },
+
+    // --- Ejemplos A1.2 ---
+    {
+        module: 'vocabulary',
+        level: 'A1.2',
+        title: '[Ejemplo A1.2] Animals and food',
+        gameType: 'multiple_choice',
+        sortOrder: 3,
+        questions: [
+            { topic: 'animals', prompt: 'Which animal says "meow"?', options: ['dog', 'cat', 'cow'], correctAnswer: 'cat' },
+            { topic: 'food', prompt: 'Which one is a fruit?', options: ['apple', 'bread', 'rice'], correctAnswer: 'apple' },
+            { topic: 'food', prompt: 'I drink ___ in the morning.', options: ['milk', 'chair', 'shoes'], correctAnswer: 'milk' }
+        ]
+    },
+    {
+        module: 'grammar',
+        level: 'A1.2',
+        title: '[Ejemplo A1.2] There is and there are',
+        gameType: 'fill_blank',
+        sortOrder: 3,
+        questions: [
+            { topic: 'there is / there are', prompt: 'There ___ a book on the desk.', options: ['is', 'are'], correctAnswer: 'is' },
+            { topic: 'there is / there are', prompt: 'There ___ three pencils in my bag.', options: ['is', 'are'], correctAnswer: 'are' },
+            { topic: 'there is / there are', prompt: 'There ___ two windows in the room.', options: ['is', 'are'], correctAnswer: 'are' }
+        ]
+    },
+    {
+        module: 'reading',
+        level: 'A1.2',
+        title: '[Ejemplo A1.2] My pet',
+        gameType: 'multiple_choice',
+        sortOrder: 3,
+        passageText: 'I have a small dog. His name is Max. He is brown and white. '
+            + 'Max likes to run in the park and eat chicken. '
+            + 'At night he sleeps on my bed.',
+        questions: [
+            { topic: 'reading: pets', prompt: 'What is the dog name?', options: ['Max', 'Tom', 'Rex'], correctAnswer: 'Max' },
+            { topic: 'reading: pets', prompt: 'What food does Max like?', options: ['Fish', 'Chicken', 'Cheese'], correctAnswer: 'Chicken' },
+            { topic: 'reading: pets', prompt: 'Where does Max sleep?', options: ['On the bed', 'In the park', 'In the kitchen'], correctAnswer: 'On the bed' }
+        ]
+    },
+
+    // --- Ejemplos A1.3 ---
+    {
+        module: 'vocabulary',
+        level: 'A1.3',
+        title: '[Ejemplo A1.3] Daily routines',
+        gameType: 'multiple_choice',
+        sortOrder: 4,
+        questions: [
+            { topic: 'routines', prompt: 'I ___ my teeth before bed.', options: ['brush', 'cook', 'drive'], correctAnswer: 'brush' },
+            { topic: 'routines', prompt: 'We ___ breakfast at seven o clock.', options: ['have', 'wear', 'open'], correctAnswer: 'have' },
+            { topic: 'places', prompt: 'You can borrow books at the ___.', options: ['library', 'bakery', 'stadium'], correctAnswer: 'library' }
+        ]
+    },
+    {
+        module: 'grammar',
+        level: 'A1.3',
+        title: '[Ejemplo A1.3] Simple present and questions',
+        gameType: 'fill_blank',
+        sortOrder: 4,
+        questions: [
+            { topic: 'present simple', prompt: 'He ___ football every Saturday.', options: ['play', 'plays', 'playing'], correctAnswer: 'plays' },
+            { topic: 'present simple', prompt: '___ you like pizza?', options: ['Do', 'Does', 'Are'], correctAnswer: 'Do' },
+            { topic: 'present simple', prompt: 'My sister ___ not eat meat.', options: ['do', 'does', 'is'], correctAnswer: 'does' }
+        ]
+    },
+    {
+        module: 'reading',
+        level: 'A1.3',
+        title: '[Ejemplo A1.3] Weekend plans',
+        gameType: 'multiple_choice',
+        sortOrder: 4,
+        passageText: 'On Saturday morning, Sofia helps her mother at the market. '
+            + 'They buy fruit and vegetables for the week. '
+            + 'In the afternoon, she visits her cousin and they watch a movie. '
+            + 'On Sunday, the whole family goes to the beach because the weather is usually hot.',
+        questions: [
+            { topic: 'reading: weekend', prompt: 'What does Sofia do on Saturday morning?', options: ['She helps her mother at the market', 'She goes to the beach', 'She does homework'], correctAnswer: 'She helps her mother at the market' },
+            { topic: 'reading: weekend', prompt: 'Who does Sofia visit in the afternoon?', options: ['Her cousin', 'Her teacher', 'Her grandmother'], correctAnswer: 'Her cousin' },
+            { topic: 'reading: weekend', prompt: 'Why does the family go to the beach on Sunday?', options: ['The weather is usually hot', 'It is a holiday', 'They like fish'], correctAnswer: 'The weather is usually hot' }
+        ]
     }
 ];
 
 async function main() {
-    if (process.env.NODE_ENV === 'production') {
-        throw new Error('Este script es solo para desarrollo/demostracion.');
+    // El permiso para correr en produccion viaja SOLO en la linea de comandos.
+    if (process.env.NODE_ENV === 'production' && !process.argv.includes('--allow-production')) {
+        throw new Error(
+            'Con NODE_ENV=production este script solo corre si el comando incluye --allow-production ' +
+            '(siembra actividades de ejemplo; no es contenido oficial).'
+        );
     }
 
     // 1) Modulos (3 filas fijas del proyecto).
@@ -131,8 +223,8 @@ async function main() {
     for (const act of ACTIVITIES) {
         const moduleId = moduleIdBySlug[act.module];
         const [existing] = await pool.query(
-            'SELECT id FROM activities WHERE module_id = ? AND title = ?',
-            [moduleId, act.title]
+            'SELECT id FROM activities WHERE module_id = ? AND title = ? AND level = ?',
+            [moduleId, act.title, act.level || 'A1.1']
         );
 
         let activityId;
@@ -141,9 +233,9 @@ async function main() {
             activitiesKept++;
         } else {
             const [res] = await pool.query(
-                'INSERT INTO activities (module_id, title, game_type, sort_order, passage_text) ' +
-                'VALUES (?, ?, ?, ?, ?)',
-                [moduleId, act.title, act.gameType, act.sortOrder, act.passageText || null]
+                'INSERT INTO activities (module_id, title, game_type, sort_order, passage_text, level, is_example) ' +
+                'VALUES (?, ?, ?, ?, ?, ?, 1)',
+                [moduleId, act.title, act.gameType, act.sortOrder, act.passageText || null, act.level || 'A1.1']
             );
             activityId = res.insertId;
             activitiesCreated++;
@@ -173,7 +265,10 @@ async function main() {
         'Hello',
         'El plural de "city" es:',
         'What is her first class?',
-        'She ___ a teacher.'
+        'She ___ a teacher.',
+        // Una pregunta de los niveles A1.2 y A1.3 (prompts unicos entre niveles).
+        'Which animal says "meow"?',
+        'He ___ football every Saturday.'
     ];
     let dailyCreated = 0;
     let position = 1;

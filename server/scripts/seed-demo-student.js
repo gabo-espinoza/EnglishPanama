@@ -6,7 +6,8 @@
 // Crea (de forma idempotente) un docente de demostracion con su codigo de clase y la
 // cuenta `estudiante01` asociada, SIN correo electronico. El MFA NO queda activado:
 // se vincula desde la propia API (POST /api/auth/mfa/setup y /api/auth/mfa/confirm)
-// para poder demostrar el flujo completo de vinculacion.
+// para poder demostrar el flujo completo de vinculacion. El docente queda con grado 3
+// (nivel A1.1) ya bloqueado, para que estudiante01 vea contenido sin pasos manuales.
 //
 // Solo para desarrollo/demostracion: se niega a correr con NODE_ENV=production.
 // Requiere que schema.sql ya este cargado (el script no modifica el esquema).
@@ -46,6 +47,11 @@ function assertSafeToRun() {
 async function ensureTeacher(passwordHash) {
     const [rows] = await pool.query('SELECT id FROM users WHERE username = ?', [TEACHER_USERNAME]);
     if (rows.length > 0) {
+        // Aunque ya exista, queda con grado 3 (A1.1) y bloqueado: estado consistente.
+        await pool.query(
+            'UPDATE teachers SET grade = 3, grade_locked_at = COALESCE(grade_locked_at, CURRENT_TIMESTAMP) WHERE user_id = ?',
+            [rows[0].id]
+        );
         const [t] = await pool.query('SELECT class_code FROM teachers WHERE user_id = ?', [rows[0].id]);
         return { userId: rows[0].id, classCode: t[0] ? t[0].class_code : null, created: false };
     }
@@ -59,7 +65,8 @@ async function ensureTeacher(passwordHash) {
         classCode = generateClassCode();
         try {
             await pool.query(
-                'INSERT INTO teachers (user_id, display_name, class_code) VALUES (?, ?, ?)',
+                'INSERT INTO teachers (user_id, display_name, class_code, grade, grade_locked_at) ' +
+                'VALUES (?, ?, ?, 3, CURRENT_TIMESTAMP)',
                 [res.insertId, TEACHER_DISPLAY_NAME, classCode]
             );
             break;
