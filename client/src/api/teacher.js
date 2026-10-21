@@ -10,3 +10,9 @@ export function getClass(token) {
 export function declareGrade(token, grade) {
     return apiRequest('/teacher/class/grade', { method: 'PUT', body: { grade, confirm: true }, token });
 }
+
+// Estudiantes de la clase: [{ userId, alias, avatar, xp, level, completedActivities, averages: { vocabulary, grammar, reading } }].
+// Los promedios son porcentajes (0-100) o null si el estudiante no tiene intentos en ese módulo.
+export function getStudents(token) {
+    return apiRequest('/teacher/students', { token });
+}
