@@ -81,6 +81,7 @@ async function makeStudent(name, teacherId) {
 }
 
 // Actividad de un nivel con dos preguntas (respuestas correctas 'am' e 'is').
+let promptSeq = 0;
 async function makeActivity(level, { title, isExample = 0, topic = 'grado' } = {}) {
     const [act] = await pool.query(
         "INSERT INTO activities (module_id, title, game_type, sort_order, level, is_example) " +
@@ -89,7 +90,11 @@ async function makeActivity(level, { title, isExample = 0, topic = 'grado' } = {
     );
     created.activities.push(act.insertId);
     const questionIds = [];
-    for (const [prompt, answer] of [['I ___ a student.', 'am'], ['She ___ happy.', 'is']]) {
+    // Enunciados unicos por llamada: la siembra de ejemplo busca la pregunta 'I ___ a student.'
+    // para su reto diario y no debe terminar ligada a una pregunta de esta prueba.
+    promptSeq += 1;
+    const tag = `${level} ${suffix}-${promptSeq}`;
+    for (const [prompt, answer] of [[`I ___ a student (${tag}).`, 'am'], [`She ___ happy (${tag}).`, 'is']]) {
         const [q] = await pool.query(
             'INSERT INTO questions (activity_id, topic, prompt, options, correct_answer) VALUES (?, ?, ?, ?, ?)',
             [act.insertId, topic, prompt, JSON.stringify(['am', 'is', 'are']), JSON.stringify(answer)]
@@ -713,4 +718,65 @@ test('reset-grade: exito, auditoria, nuevo grado y credenciales intactas', async
     assert.ok(ids.includes(actA2.id) && !ids.includes(actA1.id), 'ahora ven el nivel A1.2');
 
     assert.strictEqual((await audit.verify()).ok, true, 'la cadena de auditoria sigue integra');
+});
+
+test('reset-grade: motivos con tab, NUL, cero ancho o bidireccional dan 400 sin tocar el grado ni auditar', async (t) => {
+    if (!ready || !staffReady()) { t.skip('sin MySQL o claves de personal'); return; }
+    const tok = await staffToken('acc', 'access_manager');
+    const id = await freshTeacher('rg5');
+    await pool.query('UPDATE teachers SET grade = 4, grade_locked_at = NOW() WHERE user_id = ?', [id]);
+    const bad = [9, 0, 0x200B, 0x202E].map((c) => `motivo${String.fromCharCode(c)}roto`);
+    for (const reason of bad) {
+        const res = await resetGrade(id, tok, { reason });
+        assert.strictEqual(res.status, 400, JSON.stringify(reason));
+        assert.strictEqual((await res.json()).error, MSG_REASON);
+    }
+    const row = await gradeOf(id);
+    assert.strictEqual(row.grade, 4);
+    assert.ok(row.grade_locked_at);
+    assert.strictEqual((await resetAuditRows(id)).length, 0, 'sin fila de auditoria');
+});
+
+test('reset-grade: limites exactos del motivo (5 y 40 caracteres, y 40 con espacios que se recortan)', async (t) => {
+    if (!ready || !staffReady()) { t.skip('sin MySQL o claves de personal'); return; }
+    const tok = await staffToken('acc', 'access_manager');
+    const id = await freshTeacher('rg6');
+    const cases = [
+        ['abcde', 'abcde'],
+        ['b'.repeat(40), 'b'.repeat(40)],
+        [`  ${'c'.repeat(40)}  `, 'c'.repeat(40)]
+    ];
+    for (const [sent, stored] of cases) {
+        await pool.query('UPDATE teachers SET grade = 3, grade_locked_at = NOW() WHERE user_id = ?', [id]);
+        const res = await resetGrade(id, tok, { reason: sent });
+        assert.strictEqual(res.status, 200, JSON.stringify(sent));
+        assert.strictEqual((await gradeOf(id)).grade, null);
+        const rows = await resetAuditRows(id);
+        assert.ok(rows.some((r) => r.target.endsWith(`:motivo=${stored}`)), `auditado: ${stored.length} caracteres`);
+    }
+    assert.strictEqual((await resetAuditRows(id)).length, 3);
+    assert.ok((await resetAuditRows(id)).every((r) => r.target.length <= 100));
+});
+
+test('reset-grade: usuario de 45 caracteres se reinicia y la auditoria se recorta a 100 sin perder el motivo', async (t) => {
+    if (!ready || !staffReady()) { t.skip('sin MySQL o claves de personal'); return; }
+    const tok = await staffToken('acc', 'access_manager');
+    const username = `cg.t.largo.${suffix}`.padEnd(45, 'x');
+    assert.strictEqual(username.length, 45);
+    const id = await makeUser('teacher', username);
+    await pool.query(
+        'INSERT INTO teachers (user_id, display_name, class_code, grade, grade_locked_at) VALUES (?, ?, ?, 3, NOW())',
+        [id, 'Docente largo', `LU${suffix}`]
+    );
+    const reason = 'm'.repeat(40);
+    const res = await resetGrade(id, tok, { reason });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual((await gradeOf(id)).grade, null);
+
+    const rows = await resetAuditRows(id);
+    assert.strictEqual(rows.length, 1, 'la fila de auditoria existe');
+    assert.ok(rows[0].target.length <= 100, `target de ${rows[0].target.length} caracteres`);
+    assert.ok(rows[0].target.startsWith(`teacher#${id}:`));
+    assert.ok(rows[0].target.endsWith(`:motivo=${reason}`));
+    assert.strictEqual((await audit.verify()).ok, true);
 });

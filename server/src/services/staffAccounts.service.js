@@ -222,10 +222,13 @@ async function resetTeacherMfa({ teacherId, actorId }) {
 // No toca contrasena, MFA, sesiones ni el avance de los estudiantes. El motivo queda en
 // el target de la auditoria (VARCHAR(100), y record() ignora los errores): por eso se
 // limita a 40 caracteres, sin "|" (el hash de la auditoria une los campos con ese
-// separador) ni caracteres de control, y se valida ANTES de escribir nada.
+// separador) ni caracteres de control o de formato (incluye cero ancho y bidireccionales),
+// y se valida ANTES de escribir nada. users.username admite hasta 50 caracteres, asi que el
+// target se arma antes del UPDATE recortando solo el usuario para no pasar de 100.
 const MIN_REASON = 5;
 const MAX_REASON = 40;
-const REASON_INVALID = /[|\u0000-\u001f\u007f]/;
+const REASON_INVALID = /[|\p{Cc}\p{Cf}\u2028\u2029]/u;
+const MAX_AUDIT_TARGET = 100;
 const GRADE_NOT_SET_MSG = 'El grado de esta clase aun no ha sido declarado.';
 
 async function resetTeacherGrade({ teacherId, reason, actorId }) {
@@ -249,6 +252,13 @@ async function resetTeacherGrade({ teacherId, reason, actorId }) {
         throw new AppError(GRADE_NOT_SET_MSG, 409, 'GRADE_NOT_SET');
     }
 
+    // Target de auditoria armado antes de escribir: solo se recorta el usuario (id y motivo
+    // completos) para que nunca supere audit_log.target (VARCHAR(100)).
+    const prefix = `teacher#${id}:`;
+    const suffix = `:motivo=${motivo}`;
+    const room = Math.max(0, MAX_AUDIT_TARGET - prefix.length - suffix.length);
+    const auditTarget = `${prefix}${String(rows[0].username).slice(0, room)}${suffix}`;
+
     // La condicion grade IS NOT NULL evita reiniciar (y auditar) dos veces si hay carreras.
     const [result] = await pool.query(
         'UPDATE teachers SET grade = NULL, grade_locked_at = NULL WHERE user_id = ? AND grade IS NOT NULL',
@@ -260,7 +270,7 @@ async function resetTeacherGrade({ teacherId, reason, actorId }) {
 
     await audit.record({
         actorType: 'staff', actorId, actorRole: 'access_manager',
-        action: 'staff.teacher.reset_grade', target: `teacher#${id}:${rows[0].username}:motivo=${motivo}`, outcome: 'ok'
+        action: 'staff.teacher.reset_grade', target: auditTarget, outcome: 'ok'
     });
     return { id, username: rows[0].username, gradeReset: true };
 }
