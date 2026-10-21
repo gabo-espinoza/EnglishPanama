@@ -2,7 +2,10 @@ const activityService = require('../services/activity.service');
 
 async function listByModule(req, res, next) {
     try {
-        const activities = await activityService.listActivitiesByModule(req.params.moduleSlug);
+        const activities = await activityService.listActivitiesByModule(
+            req.user.id,
+            req.params.moduleSlug
+        );
         res.json(activities);
     } catch (err) {
         next(err);
@@ -11,7 +14,10 @@ async function listByModule(req, res, next) {
 
 async function getQuestions(req, res, next) {
     try {
-        const activity = await activityService.getActivityQuestions(Number(req.params.id));
+        const activity = await activityService.getActivityQuestions(
+            req.user.id,
+            Number(req.params.id)
+        );
         res.json(activity);
     } catch (err) {
         next(err);

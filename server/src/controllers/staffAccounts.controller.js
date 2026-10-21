@@ -80,8 +80,21 @@ async function resetTeacherMfa(req, res, next) {
     }
 }
 
+// POST /api/staff/teachers/:id/reset-grade - el gestor de accesos reinicia el grado de la clase de un docente
+async function resetTeacherGrade(req, res, next) {
+    try {
+        const result = await staffAccounts.resetTeacherGrade({
+            teacherId: req.params.id, reason: req.body?.reason, actorId: req.staff.id
+        });
+        res.json(result);
+    } catch (err) {
+        next(err);
+    }
+}
+
 module.exports = {
     resetTeacherMfa,
+    resetTeacherGrade,
     listAccounts,
     createChangeRequest,
     listChangeRequests,

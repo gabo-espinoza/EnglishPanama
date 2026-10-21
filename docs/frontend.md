@@ -16,14 +16,15 @@ Se abre en `http://localhost:5173`.
 
 ```
 src/
-├── api/                      Conexión con el backend y sesión
+├── api/                      Conexión con el backend y sesión (student.js y teacher.js: llamadas de cada panel)
 ├── components/
 │   ├── AuthBackground.jsx    Fondo con ráfagas de viento para Login y Registro
-│   └── ProtectedRoute.jsx    Protege rutas según sesión y rol
+│   ├── ProtectedRoute.jsx    Protege rutas según sesión y rol
+│   └── TopBar.jsx            Barra superior de los paneles: nombre del usuario y cierre de sesión
 ├── pages/
 │   ├── auth/                 Login.jsx y Register.jsx
-│   ├── student/
-│   └── teacher/
+│   ├── student/              StudentHome.jsx (panel del estudiante)
+│   └── teacher/              TeacherHome.jsx (panel docente)
 ├── App.jsx
 ├── index.css                 Clases base (auth-card, auth-input, auth-button)
 └── main.jsx
@@ -93,9 +94,22 @@ Envuelve las pantallas de autenticación: fondo oscuro con degradado turquesa y 
 - Sin `passwordToken` en el estado (por ejemplo, al abrir la ruta directamente), la ruta redirige al login. El estado del router vive en `window.history.state`, así que una recarga lo conserva mientras el token sea válido (muere a los 15 minutos o tras usarse).
 - Red de seguridad: si una sesión vieja recibe `403` con `code: "PASSWORD_CHANGE_REQUIRED"`, el cliente HTTP (`api/client.js`) descarta la sesión y lleva a `/login`, donde el flujo normal lo conduce a crear la contraseña.
 
+### Panel docente (`/teacher`)
+- Muestra el **código de la clase** (para compartirlo con los estudiantes) y la tarjeta **"Nivel de la clase"**. Los datos salen de `GET /api/teacher/class` (`api/teacher.js`).
+- **Sin grado declarado:** ofrece un botón por cada opción de `grades` (por ejemplo "3.º grado · A1.1"). Al elegir una, aparece un aviso de que el nivel **no se puede cambiar durante todo el periodo escolar** y que, si se equivoca, deberá pedir ayuda al gestor de cuentas, junto con la casilla "Entiendo que no podré cambiarlo". El botón "Confirmar …" sigue desactivado hasta marcar la casilla.
+- **Confirmación:** envía `PUT /api/teacher/class/grade` con `{ grade, confirm: true }` (el cliente siempre manda `confirm: true`; el servidor es la autoridad y exige ambos). Con la respuesta 200 la tarjeta pasa a modo bloqueado.
+- **Con grado declarado:** muestra el grado y el nivel y un candado (por ejemplo "🔒 3.º grado · A1.1") y el texto "Si fue un error, abre un ticket con el gestor de cuentas". Ya no hay botones para cambiarlo. Es el estado también al volver a entrar.
+- Si otra petición ya había declarado el grado (`409` con `code: "GRADE_LOCKED"`), el cliente recarga `GET /api/teacher/class` y muestra el grado ya declarado. Un `401` limpia la sesión y lleva al login; los demás errores se muestran en la tarjeta.
+
+### Panel del estudiante (`/student`)
+- Arriba, la tarjeta **"Nivel de tu clase"** con el grado y el nivel (`classGrade` y `classLevel` de `GET /api/users/me`) y su XP y nivel de XP (`level` numérico). Si el docente aún no declaró el grado (`classLevel` es `null`), muestra "Tu docente aún no ha elegido el nivel de la clase." y **no pide actividades**.
+- Con nivel, una sección por módulo (Vocabulary, Grammar y Reading) que carga `GET /api/activities/:moduleSlug` (`api/student.js`). El servidor ya devuelve solo las actividades del nivel de la clase; el cliente no filtra nada.
+- Las actividades con `isExample: true` llevan una etiqueta **"Ejemplo"**: son actividades de demostración, no contenido oficial.
+- Un módulo sin actividades muestra "Aún no hay actividades en este módulo.". Un `401` limpia la sesión y lleva al login.
+
 ### Rutas
 `/login`, `/register`, `/password/initial`, `/mfa/setup`, y las protegidas `/student/*` y `/teacher/*` (`ProtectedRoute`). `/` redirige a `/login`.
 
 ## Pendiente
-- Vistas de estudiante (`pages/student`).
-- Vistas de docente (`pages/teacher`).
+- Estudiante: jugar las actividades, XP en vivo, ranking y reto diario (hoy el panel solo lista las actividades del nivel).
+- Docente: lista de estudiantes, progreso y temas difíciles (hoy el panel solo muestra el código y el grado de la clase).

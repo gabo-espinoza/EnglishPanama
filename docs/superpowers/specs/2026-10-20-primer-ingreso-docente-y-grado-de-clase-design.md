@@ -178,3 +178,16 @@ Aclaraciones al modelo, para que el constructor no tenga que adivinar:
 ## Lo que se deja al constructor
 
 Nombres de archivos, rutas de React y componentes, estilos con Tailwind, texto exacto de los mensajes de error (en español neutro), la política exacta de contraseñas (se reutiliza la existente), la forma concreta de marcar los datos de ejemplo, y cuántas actividades de ejemplo por nivel bastan para una demostración convincente.
+
+## Decisiones de implementación de la pieza 2
+
+Surgieron al revisar el código real antes de planificar; el plan (`docs/superpowers/plans/2026-10-20-grado-de-la-clase.md`) las detalla.
+
+- **Nombres:** `level` ya significa nivel de XP en las respuestas de la API. El nivel MEDUCA se llama `classLevel` y el grado `classGrade` en JSON y en código. En la base, la columna de actividades se llama `level`.
+- **Motivo del reinicio:** la auditoría no tiene columna de motivo. Va en el `target` como `teacher#<id>:<usuario>:motivo=<texto>`, con el motivo limitado de 5 a 40 caracteres y sin `|`. No se migra la base de auditoría.
+- **Reto diario y panel docente:** también se filtran por el nivel de la clase, para que ningún estudiante vea una pregunta de otro nivel y para que, tras un reinicio y otro grado, no se mezclen intentos de otro nivel.
+- **Marca de ejemplo:** columna `activities.is_example`. Retirar los ejemplos borra también sus intentos y retos diarios asociados (cascada).
+- **Actividad de otro nivel o clase sin grado:** el listado devuelve vacío; preguntas e intentos responden 404.
+- **Reiniciar un grado no declarado:** 409 `GRADE_NOT_SET`.
+- **Script de contenido en producción:** exige el indicador `--allow-production` además de `NODE_ENV`; nunca una variable de entorno.
+- **Paneles:** los dos paneles del cliente son nuevos (los actuales son marcadores de posición). Jugar las actividades queda fuera.

@@ -9,5 +9,7 @@ router.use(requireAuth, requireRole('teacher'));
 
 router.get('/students', teacherController.getStudents);
 router.get('/difficult-topics', teacherController.getDifficultTopics);
+router.get('/class', teacherController.getClass);
+router.put('/class/grade', teacherController.declareGrade);
 
 module.exports = router;

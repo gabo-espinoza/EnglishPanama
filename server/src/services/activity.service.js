@@ -1,6 +1,7 @@
 const pool = require('../config/db');
 const AppError = require('../utils/AppError');
 const { xpForScore, progressForXp } = require('./xp.service');
+const { getClassLevelForStudent } = require('./classLevel.service');
 
 const VALID_MODULES = ['vocabulary', 'grammar', 'reading'];
 
@@ -19,7 +20,7 @@ function normalizeAnswer(value) {
     return String(value).trim().toLowerCase();
 }
 
-async function listActivitiesByModule(moduleSlug) {
+async function listActivitiesByModule(studentId, moduleSlug) {
     if (!VALID_MODULES.includes(moduleSlug)) {
         throw new AppError('Modulo invalido. Usa vocabulary, grammar o reading.', 404);
     }
@@ -29,22 +30,37 @@ async function listActivitiesByModule(moduleSlug) {
         throw new AppError('El modulo no existe.', 404);
     }
 
+    // Clase sin grado declarado: no hay nivel que mostrar.
+    const level = await getClassLevelForStudent(studentId);
+    if (level === null) return [];
+
     const [rows] = await pool.query(
-        'SELECT id, title, game_type AS gameType, sort_order AS sortOrder ' +
-        'FROM activities WHERE module_id = ? ORDER BY sort_order, id',
-        [moduleRows[0].id]
+        'SELECT id, title, game_type AS gameType, sort_order AS sortOrder, is_example AS isExample ' +
+        'FROM activities WHERE module_id = ? AND level = ? ORDER BY sort_order, id',
+        [moduleRows[0].id, level]
     );
-    return rows;
+    return rows.map((row) => ({ ...row, isExample: Boolean(row.isExample) }));
 }
 
-async function getActivityQuestions(activityId) {
+// 404 si la actividad no existe, es de otro nivel o la clase no tiene grado.
+// Devuelve la fila de la actividad (id y passage_text).
+async function findActivityForStudent(studentId, activityId) {
+    const level = await getClassLevelForStudent(studentId);
+    if (level === null) {
+        throw new AppError('La actividad no existe.', 404);
+    }
     const [activityRows] = await pool.query(
-        'SELECT id, passage_text AS passageText FROM activities WHERE id = ?',
-        [activityId]
+        'SELECT id, passage_text AS passageText FROM activities WHERE id = ? AND level = ?',
+        [activityId, level]
     );
     if (activityRows.length === 0) {
         throw new AppError('La actividad no existe.', 404);
     }
+    return activityRows[0];
+}
+
+async function getActivityQuestions(studentId, activityId) {
+    const activity = await findActivityForStudent(studentId, activityId);
 
     // Solo columnas publicas: correct_answer nunca sale de aqui.
     const [questionRows] = await pool.query(
@@ -53,8 +69,8 @@ async function getActivityQuestions(activityId) {
     );
 
     return {
-        activityId: activityRows[0].id,
-        passageText: activityRows[0].passageText,
+        activityId: activity.id,
+        passageText: activity.passageText,
         questions: questionRows
     };
 }
@@ -64,10 +80,8 @@ async function submitAttempt(studentId, activityId, answers) {
         throw new AppError('Debes enviar al menos una respuesta (answers).');
     }
 
-    const [activityRows] = await pool.query('SELECT id FROM activities WHERE id = ?', [activityId]);
-    if (activityRows.length === 0) {
-        throw new AppError('La actividad no existe.', 404);
-    }
+    // Antes de corregir y de abrir la transaccion: otro nivel o clase sin grado = 404.
+    await findActivityForStudent(studentId, activityId);
 
     const [questionRows] = await pool.query(
         'SELECT id, correct_answer AS correctAnswer FROM questions WHERE activity_id = ?',

@@ -90,6 +90,40 @@ Regla: una ruta nunca habla directo con la base. Ruta -> controlador -> servicio
 | `scripts/reset-staff-mfa.js` | Regenera el MFA de una cuenta de gestion. |
 | `tests/staff.test.js` | Pruebas de login, permisos, separacion de funciones y auditoria. |
 
+### Grado de la clase (pieza 2)
+
+El docente declara el grado de su clase (3, 4 o 5) una sola vez, y cada grado corresponde a un nivel (A1.1, A1.2 o
+A1.3). Los estudiantes solo ven y juegan las actividades del nivel de su clase. Detalle de endpoints en
+[`api.md`](api.md); controles de seguridad en [`security.md`](security.md).
+
+**Nuevos**
+
+| Archivo | Rol |
+|---|---|
+| `src/config/classLevels.js` | Fuente unica de la relacion grado -> nivel (`3 -> A1.1`, `4 -> A1.2`, `5 -> A1.3`), con `isValidGrade` y `levelForGrade`. Constante congelada. |
+| `src/services/classLevel.service.js` | `getClassLevelForStudent` y `getClassLevelForTeacher`: nivel de la clase, o `null` si el docente aun no declaro el grado. Es la unica fuente para filtrar por clase. |
+| `database/migrations/phase4-class-grade.sql` | Migracion aditiva y repetible: `teachers.grade`, `teachers.grade_locked_at`, `activities.level` y `activities.is_example`. Se aplica a mano en produccion (ver [`migraciones-produccion.md`](migraciones-produccion.md), seccion 14). |
+| `tests/classLevels.test.js` | Pruebas de la constante y de sus funciones. |
+| `tests/errorCode.test.js` | Pruebas de que `AppError` con `apiCode` sale como `code` en la respuesta y de que el `code` de MySQL nunca se expone. |
+| `tests/class-grade.test.js` | Pruebas de integracion: filtro por nivel, `404` de otro nivel, reto diario, panel docente, `/users/me`, `GET /teacher/class`, `PUT /teacher/class/grade` (incluida la carrera) y `POST /staff/teachers/:id/reset-grade`. |
+| `tests/seed-content.test.js` | Pruebas de `seed-demo-content.js`: guardia de produccion, ejemplos de los tres niveles, marcado `is_example` e idempotencia. |
+
+**Modificados**
+
+| Archivo | Cambio |
+|---|---|
+| `database/schema.sql` | Agrega `teachers.grade`, `teachers.grade_locked_at`, `activities.level` (`ENUM('A1.1','A1.2','A1.3')`, por defecto `A1.1`) y `activities.is_example` (por defecto `0`). |
+| `src/utils/AppError.js` | Tercer argumento opcional `apiCode`; el manejador de errores lo expone como `code` (solo en errores `4xx`). Lo usan `GRADE_LOCKED` y `GRADE_NOT_SET`. |
+| `src/services/activity.service.js` | Listado, preguntas e intentos reciben el `studentId` y filtran por el nivel de la clase; `isExample` en el listado. Otro nivel o clase sin grado: `404` `La actividad no existe.` |
+| `src/services/dailyChallenge.service.js` | El pool del reto diario se filtra por el nivel de la clase del estudiante. |
+| `src/services/teacher.service.js` | Agrega `getClass` y `declareGrade`; `getStudents` y `getDifficultTopics` cuentan solo el nivel actual de la clase. |
+| `src/services/user.service.js` | `GET /users/me` agrega `classGrade` y `classLevel` para estudiante y docente. |
+| `src/services/staffAccounts.service.js` | Agrega `resetTeacherGrade` (reinicio del grado con motivo auditado). |
+| `src/controllers/teacher.controller.js`, `src/routes/teacher.routes.js` | `GET /teacher/class` y `PUT /teacher/class/grade`. |
+| `src/controllers/staffAccounts.controller.js`, `src/routes/staff.routes.js` | `POST /staff/teachers/:id/reset-grade` (solo `access_manager`). |
+| `scripts/seed-demo-content.js` | Siembra actividades de ejemplo de los tres niveles, todas con `is_example = 1`; con `NODE_ENV=production` solo corre con el indicador `--allow-production`. |
+| `scripts/seed-demo-student.js` | El docente de demostracion queda con grado 3 (A1.1) ya bloqueado, para que `estudiante01` vea contenido. Sigue siendo solo de desarrollo. |
+
 ## Como correrlo localmente
 
 ```bash
@@ -129,7 +163,10 @@ npm test
 - `tests/staff.test.js`: login de gestion con TOTP, permisos por area/rol, separacion de
   funciones (solicitar / no decidir / suspender) y verificacion de la cadena de auditoria.
 
-Ambos cargan `.env` si existe. Las pruebas que necesitan MySQL o `STAFF_MFA_KEY` **se omiten
+Las pruebas del grado de la clase viven en `tests/class-grade.test.js`, `tests/classLevels.test.js`,
+`tests/errorCode.test.js` y `tests/seed-content.test.js`; `npm test` ejecuta tambien esos archivos.
+
+Todos cargan `.env` si existe. Las pruebas que necesitan MySQL o `STAFF_MFA_KEY` **se omiten
 solas** cuando no estan disponibles, asi que la suite corre igual en una maquina sin base.
 Para pruebas manuales con datos reales, usar los `curl` de `api.md`.
 
