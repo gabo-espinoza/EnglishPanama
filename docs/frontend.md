@@ -100,6 +100,8 @@ Envuelve las pantallas de autenticación: fondo oscuro con degradado turquesa y 
 - **Confirmación:** envía `PUT /api/teacher/class/grade` con `{ grade, confirm: true }` (el cliente siempre manda `confirm: true`; el servidor es la autoridad y exige ambos). Con la respuesta 200 la tarjeta pasa a modo bloqueado.
 - **Con grado declarado:** muestra el grado y el nivel y un candado (por ejemplo "🔒 3.º grado · A1.1") y el texto "Si fue un error, abre un ticket con el gestor de cuentas". Ya no hay botones para cambiarlo. Es el estado también al volver a entrar.
 - Si otra petición ya había declarado el grado (`409` con `code: "GRADE_LOCKED"`), el cliente recarga `GET /api/teacher/class` y muestra el grado ya declarado. Un `401` limpia la sesión y lleva al login; los demás errores se muestran en la tarjeta.
+- Debajo, la tarjeta **"Estudiantes de tu clase"** con el número de estudiantes y una tabla (con scroll horizontal en pantallas estrechas) con alias, XP, nivel de XP, actividades completadas y promedio por módulo (Vocabulary, Grammar y Reading; "—" si no hay intentos). Los datos salen de `GET /api/teacher/students` (`getStudents` en `api/teacher.js`).
+- Esta tarjeta carga por separado de la clase: si falla, muestra su error sin afectar al resto del panel. Sin estudiantes muestra "Aún no hay estudiantes registrados con tu código de clase." Un `401` limpia la sesión y lleva al login.
 
 ### Panel del estudiante (`/student`)
 - Arriba, la tarjeta **"Nivel de tu clase"** con el grado y el nivel (`classGrade` y `classLevel` de `GET /api/users/me`) y su XP y nivel de XP (`level` numérico). Si el docente aún no declaró el grado (`classLevel` es `null`), muestra "Tu docente aún no ha elegido el nivel de la clase." y **no pide actividades**.
