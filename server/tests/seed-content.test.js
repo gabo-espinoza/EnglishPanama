@@ -42,14 +42,23 @@ test('una variable de entorno nunca habilita el script en produccion', () => {
     }
 });
 
+// Base inalcanzable: un nombre que no resuelve, para que ningun MySQL local deje pasar al script.
+const DEAD_DB = { DB_HOST: 'invalid.invalid', DB_USER: 'x', DB_PASSWORD: 'x', DB_NAME: 'x' };
+const CONN_ERR = /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ETIMEDOUT|getaddrinfo/;
+
 test('con --allow-production el guardia deja pasar (falla despues, por la base)', () => {
-    const out = runSeed(
-        { NODE_ENV: 'production', DB_HOST: '', DB_USER: '', DB_PASSWORD: '', DB_NAME: '' },
-        ['--allow-production']
-    );
+    const out = runSeed({ NODE_ENV: 'production', ...DEAD_DB }, ['--allow-production']);
     assert.notStrictEqual(out.status, 0);
+    assert.match(out.stderr, CONN_ERR);
     assert.doesNotMatch(out.stderr, /--allow-production/);
     assert.doesNotMatch(out.stderr, /NODE_ENV=production/);
+});
+
+test('sin el indicador el guardia corre antes de cualquier conexion', () => {
+    const out = runSeed({ NODE_ENV: 'production', ...DEAD_DB });
+    assert.notStrictEqual(out.status, 0);
+    assert.match(out.stderr, /--allow-production/);
+    assert.doesNotMatch(out.stderr, CONN_ERR);
 });
 
 // ------------------------------------------------------------ con base
@@ -81,15 +90,29 @@ test.before(async () => {
     }
 });
 
+// Solo se borra lo que la siembra posee: actividades de ejemplo con titulo de la siembra y
+// ids ausentes de la foto previa, y los retos nuevos ligados a esas actividades. Los modulos
+// no se borran (los comparten otros archivos de prueba que corren en paralelo).
+const ORIGINAL_TITLES = [
+    'Saludos y presentaciones', 'Numeros y colores', 'Presente simple: verbo to be',
+    'Plurales en ingles', 'A day at school', 'My family'
+];
+const OWNED = "(a.title LIKE '[Ejemplo A1.%' OR a.title IN (?))";
+
 test.after(async () => {
     if (pool) {
         try {
             if (ready) {
-                // Solo filas nuevas; las preguntas y los retos asociados caen en cascada.
-                const newActs = [...(await ids('SELECT id FROM activities'))].filter((i) => !before.activities.has(i));
+                const [chs] = await pool.query(
+                    `SELECT dc.id FROM daily_challenges dc
+                     JOIN questions q ON q.id = dc.question_id
+                     JOIN activities a ON a.id = q.activity_id WHERE ${OWNED}`, [ORIGINAL_TITLES]
+                );
+                const newChs = chs.map((r) => r.id).filter((i) => !before.challenges.has(i));
+                if (newChs.length) await pool.query('DELETE FROM daily_challenges WHERE id IN (?)', [newChs]);
+                const [acts] = await pool.query(`SELECT a.id FROM activities a WHERE ${OWNED}`, [ORIGINAL_TITLES]);
+                const newActs = acts.map((r) => r.id).filter((i) => !before.activities.has(i));
                 if (newActs.length) await pool.query('DELETE FROM activities WHERE id IN (?)', [newActs]);
-                const newMods = [...(await ids('SELECT id FROM modules'))].filter((i) => !before.modules.has(i));
-                if (newMods.length) await pool.query('DELETE FROM modules WHERE id IN (?)', [newMods]);
             }
         } catch (err) {
             console.error('Fallo la limpieza de seed-content.test.js:', err.message);
@@ -99,7 +122,9 @@ test.after(async () => {
 });
 
 async function ownRows() {
-    const [rows] = await pool.query('SELECT id, level, is_example FROM activities');
+    const [rows] = await pool.query(
+        `SELECT a.id, a.level, a.is_example FROM activities a WHERE ${OWNED}`, [ORIGINAL_TITLES]
+    );
     return rows.filter((r) => !before.activities.has(r.id));
 }
 
@@ -137,4 +162,31 @@ test('el script crea ejemplos de los tres niveles, todos marcados, y no duplica'
     assert.strictEqual(third.status, 0, third.stderr);
     const [[q2]] = await pool.query('SELECT COUNT(*) AS n FROM questions');
     assert.strictEqual(q2.n, q1.n, 'no duplica preguntas');
+});
+
+test('una fila de una siembra anterior (is_example = 0) queda marcada sin duplicarse', async (t) => {
+    if (!ready) { t.skip('sin MySQL'); return; }
+    const title = 'Saludos y presentaciones';
+    await pool.query("INSERT IGNORE INTO modules (slug, name) VALUES ('vocabulary', 'Vocabulary')");
+    const [[mod]] = await pool.query("SELECT id FROM modules WHERE slug = 'vocabulary'");
+    const [pre] = await pool.query(
+        "SELECT id FROM activities WHERE module_id = ? AND title = ? AND level = 'A1.1'", [mod.id, title]
+    );
+    if (pre.some((r) => before.activities.has(r.id))) { t.skip('la base ya trae esa actividad'); return; }
+    if (pre.length > 0) {
+        // La dejo una corrida anterior de este archivo: se devuelve al estado del script viejo.
+        await pool.query('UPDATE activities SET is_example = 0 WHERE id = ?', [pre[0].id]);
+    } else {
+        await pool.query(
+            "INSERT INTO activities (module_id, title, game_type, sort_order, level, is_example) VALUES (?, ?, 'memory', 1, 'A1.1', 0)",
+            [mod.id, title]
+        );
+    }
+    const run = runSeed(dbEnv);
+    assert.strictEqual(run.status, 0, run.stderr);
+    const [rows] = await pool.query(
+        "SELECT is_example FROM activities WHERE module_id = ? AND title = ? AND level = 'A1.1'", [mod.id, title]
+    );
+    assert.strictEqual(rows.length, 1, 'sin duplicados');
+    assert.strictEqual(rows[0].is_example, 1);
 });

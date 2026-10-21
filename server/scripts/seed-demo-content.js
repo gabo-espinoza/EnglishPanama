@@ -230,6 +230,9 @@ async function main() {
         let activityId;
         if (existing.length > 0) {
             activityId = existing[0].id;
+            // Bases sembradas antes de is_example: la fila coincide con una de la siembra
+            // (modulo, titulo y nivel), asi que es segura de marcar como ejemplo.
+            await pool.query('UPDATE activities SET is_example = 1 WHERE id = ?', [activityId]);
             activitiesKept++;
         } else {
             const [res] = await pool.query(
