@@ -1,9 +1,10 @@
 // Siembra de contenido de ejemplo: guardia explicito de produccion y niveles A1.1/A1.2/A1.3.
 //
 // Las pruebas del guardia no necesitan base. Las pruebas con base corren el script como
-// proceso hijo contra la base configurada y limpian lo que ese script cree (se toma una foto
-// de las filas previas y solo se borra lo nuevo), para no dejar datos que otros archivos de
-// prueba vean en la base compartida. Se omiten solo si no hay variables de MySQL.
+// proceso hijo contra la base configurada y limpian solo lo que posee la siembra: sus
+// actividades de ejemplo (titulos de la siembra, ids ausentes de la foto previa) y los retos
+// diarios ligados a ellas. Nunca se borran modulos (los comparten otros archivos de prueba que
+// corren en paralelo). Se omiten solo si no hay variables de MySQL.
 const test = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
@@ -67,7 +68,7 @@ const hasDb = Boolean(process.env.DB_HOST && process.env.DB_USER && process.env.
 const dbEnv = { NODE_ENV: 'test' };
 let pool;
 let ready = false;
-let before = { activities: new Set(), modules: new Set(), challenges: new Set() };
+let before = { activities: new Set(), challenges: new Set() };
 
 async function ids(sql) {
     const [rows] = await pool.query(sql);
@@ -81,7 +82,6 @@ test.before(async () => {
         await pool.query('SELECT 1');
         before = {
             activities: await ids('SELECT id FROM activities'),
-            modules: await ids('SELECT id FROM modules'),
             challenges: await ids('SELECT id FROM daily_challenges')
         };
         ready = true;
@@ -149,7 +149,8 @@ test('el script crea ejemplos de los tres niveles, todos marcados, y no duplica'
 
     const [[poolLevels]] = await pool.query(
         `SELECT COUNT(DISTINCT a.level) AS n FROM daily_challenges dc
-         JOIN questions q ON q.id = dc.question_id JOIN activities a ON a.id = q.activity_id`
+         JOIN questions q ON q.id = dc.question_id JOIN activities a ON a.id = q.activity_id
+         WHERE ${OWNED}`, [ORIGINAL_TITLES]
     );
     assert.ok(poolLevels.n >= 3, 'el reto diario incluye preguntas de cada nivel');
 
@@ -157,10 +158,16 @@ test('el script crea ejemplos de los tres niveles, todos marcados, y no duplica'
     assert.strictEqual(second.status, 0, second.stderr);
     const rows2 = await ownRows();
     assert.strictEqual(rows2.length, rows1.length, 'la segunda corrida no agrega actividades');
-    const [[q1]] = await pool.query('SELECT COUNT(*) AS n FROM questions');
+    // Solo las preguntas de las actividades de la siembra: otros archivos de prueba crean y
+    // borran preguntas en paralelo, asi que un conteo global no es estable.
+    const ownQuestions = () => pool.query(
+        `SELECT COUNT(*) AS n FROM questions
+         WHERE activity_id IN (SELECT a.id FROM activities a WHERE ${OWNED})`, [ORIGINAL_TITLES]
+    );
+    const [[q1]] = await ownQuestions();
     const third = runSeed(dbEnv);
     assert.strictEqual(third.status, 0, third.stderr);
-    const [[q2]] = await pool.query('SELECT COUNT(*) AS n FROM questions');
+    const [[q2]] = await ownQuestions();
     assert.strictEqual(q2.n, q1.n, 'no duplica preguntas');
 });
 
