@@ -391,7 +391,8 @@ Como la tabla `users` está vacía, no hay cuentas previas: se prueba con las qu
 
 1. **Docente:** crea uno (sección 8.1) e inicia sesión con la contraseña temporal. Primero debe aparecer **"Crea tu contraseña"**; al guardarla, aparece la pantalla **"Protege tu cuenta"** (vinculación obligatoria del autenticador). Tras escanear el QR y escribir el código, entra a `/teacher`.
 2. **Estudiante:** regístrate desde `/register` con el código de clase del docente. Debe entrar directo a `/student`.
-3. **Registro de docentes deshabilitado:** `POST /api/auth/register/teacher` responde 403. Las cuentas de docente las crea el gestor de accesos.
+3. **Grado de la clase:** antes de declararlo, el estudiante registrado ve el estado vacío "Tu docente aún no ha elegido el nivel de la clase." Con la sesión del docente, declara el grado de la clase en su panel; después, el estudiante registrado recarga y ve las actividades de ese nivel (si ya cargaste ejemplos, sección 14.1).
+4. **Registro de docentes deshabilitado:** `POST /api/auth/register/teacher` responde 403. Las cuentas de docente las crea el gestor de accesos.
 
 **[VM-APP]** — revisar que el registro de auditoría esté funcionando:
 
@@ -610,6 +611,8 @@ node scripts/seed-demo-content.js --allow-production
 - Si encuentra una actividad sembrada antes de que existiera `is_example` (mismo módulo, título y nivel), la marca como ejemplo en vez de duplicarla.
 - También agrega a `daily_challenges` hasta 7 preguntas de ejemplo (una por posición libre; no pisa posiciones ya ocupadas).
 - No crea cuentas.
+- También inserta (si faltan) las tres filas de `modules` (`vocabulary`, `grammar`, `reading`); es idempotente e inofensivo.
+- **No lo corras después de que exista contenido oficial** con el mismo módulo, título y nivel: volvería a marcar esas actividades como ejemplo y el `DELETE` de retiro las borraría. Revisa con un `SELECT` antes del `DELETE`.
 
 **Retirar los ejemplos.** Cuando haya contenido oficial, en la **[VM-BD]**:
 
