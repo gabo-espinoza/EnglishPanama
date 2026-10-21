@@ -30,6 +30,8 @@ CREATE TABLE teachers (
     user_id      INT UNSIGNED PRIMARY KEY,
     display_name VARCHAR(100) NOT NULL,
     class_code   VARCHAR(10) NOT NULL,
+    grade            TINYINT UNSIGNED NULL COMMENT 'Grado de la clase (3, 4 o 5); NULL = aun no declarado',
+    grade_locked_at  TIMESTAMP NULL COMMENT 'Fecha en que el docente declaro el grado',
     UNIQUE KEY uq_teachers_class_code (class_code),
     CONSTRAINT fk_teachers_user
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -65,6 +67,8 @@ CREATE TABLE activities (
     game_type     ENUM('memory', 'multiple_choice', 'sentence_order', 'fill_blank') NOT NULL,
     sort_order    INT UNSIGNED NOT NULL DEFAULT 0,
     passage_text  TEXT NULL COMMENT 'Solo se usa en actividades del modulo Reading',
+    level         ENUM('A1.1', 'A1.2', 'A1.3') NOT NULL DEFAULT 'A1.1' COMMENT 'Nivel de la actividad; el estudiante solo ve el de su clase',
+    is_example    TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1 = actividad de ejemplo sembrada, no es contenido oficial',
     CONSTRAINT fk_activities_module
         FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE,
     KEY idx_activities_module (module_id)

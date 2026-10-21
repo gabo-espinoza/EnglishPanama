@@ -169,7 +169,7 @@ const apiGet = (path, token) =>
 test('una sesion valida con must_change_password=1 recibe 403 con code', async (t) => {
     if (!ready) { t.skip('sin MySQL o claves'); return; }
     const { token } = await sessionFor(`prof.flag1.${suffix}`);
-    for (const path of ['/api/users/me', '/api/teacher/students']) {
+    for (const path of ['/api/users/me', '/api/teacher/students', '/api/teacher/class']) {
         const res = await apiGet(path, token);
         assert.strictEqual(res.status, 403, path);
         const body = await res.json();
