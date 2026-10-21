@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { declareGrade, getClass } from '../../api/teacher';
+import { declareGrade, getClass, getStudents } from '../../api/teacher';
 import { clearSession, getSession } from '../../api/session';
 import TopBar from '../../components/TopBar';
 
@@ -8,6 +8,11 @@ const CARD = 'bg-white rounded-2xl border border-gray-100 shadow-[0_8px_30px_rgb
 
 function gradeLabel(grade, level) {
     return `${grade}.º grado · ${level}`;
+}
+
+// Promedio en porcentaje; sin intentos en el módulo llega null y se muestra "—".
+function formatAverage(value) {
+    return typeof value === 'number' && Number.isFinite(value) ? `${value}%` : '—';
 }
 
 // Panel docente: código de la clase y declaración del grado (una sola vez).
@@ -20,6 +25,9 @@ export default function TeacherHome() {
     const [understood, setUnderstood] = useState(false);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
+    const [students, setStudents] = useState(null);
+    const [studentsLoading, setStudentsLoading] = useState(true);
+    const [studentsError, setStudentsError] = useState('');
 
     function toLogin() {
         clearSession();
@@ -45,6 +53,29 @@ export default function TeacherHome() {
             })
             .finally(() => {
                 if (active) setLoading(false);
+            });
+        return () => {
+            active = false;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // Lista de estudiantes: carga independiente de la clase, con su propio estado de carga y error.
+    useEffect(() => {
+        let active = true;
+        const session = getSession();
+        if (!session) return undefined;
+        getStudents(session.token)
+            .then((data) => {
+                if (active) setStudents(data);
+            })
+            .catch((err) => {
+                if (!active) return;
+                if (err.status === 401) toLogin();
+                else setStudentsError(err.message);
+            })
+            .finally(() => {
+                if (active) setStudentsLoading(false);
             });
         return () => {
             active = false;
@@ -174,6 +205,58 @@ export default function TeacherHome() {
                         </section>
                     </>
                 )}
+
+                <section className={CARD}>
+                    <div className="flex flex-wrap items-baseline justify-between gap-2 mb-4">
+                        <h2 className="text-lg font-bold text-gray-900">Estudiantes de tu clase</h2>
+                        {students && (
+                            <p className="text-sm text-gray-500">
+                                {students.length === 1 ? '1 estudiante' : `${students.length} estudiantes`}
+                            </p>
+                        )}
+                    </div>
+
+                    {studentsLoading && <p className="text-sm text-gray-500">Cargando estudiantes...</p>}
+                    {studentsError && <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg text-center">{studentsError}</div>}
+
+                    {students && students.length === 0 && (
+                        <div>
+                            <p className="text-sm text-gray-600">Aún no hay estudiantes registrados con tu código de clase.</p>
+                            {!classData && <p className="text-sm text-gray-600 mt-1">Compártelo con tus estudiantes para que se registren.</p>}
+                        </div>
+                    )}
+
+                    {students && students.length > 0 && (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm text-left">
+                                <thead>
+                                    <tr className="text-gray-500 border-b border-gray-100">
+                                        <th scope="col" className="py-2 pr-4 font-semibold">Alias</th>
+                                        <th scope="col" className="py-2 pr-4 font-semibold">XP</th>
+                                        <th scope="col" className="py-2 pr-4 font-semibold">Nivel XP</th>
+                                        <th scope="col" className="py-2 pr-4 font-semibold">Actividades</th>
+                                        <th scope="col" className="py-2 pr-4 font-semibold">Vocabulary</th>
+                                        <th scope="col" className="py-2 pr-4 font-semibold">Grammar</th>
+                                        <th scope="col" className="py-2 font-semibold">Reading</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {students.map((student) => (
+                                        <tr key={student.userId} className="border-b border-gray-50 last:border-0">
+                                            <th scope="row" className="py-2 pr-4 font-semibold text-gray-900 whitespace-nowrap">{student.alias}</th>
+                                            <td className="py-2 pr-4 text-gray-700">{student.xp}</td>
+                                            <td className="py-2 pr-4 text-gray-700">{student.level}</td>
+                                            <td className="py-2 pr-4 text-gray-700">{student.completedActivities}</td>
+                                            <td className="py-2 pr-4 text-gray-700">{formatAverage(student.averages?.vocabulary)}</td>
+                                            <td className="py-2 pr-4 text-gray-700">{formatAverage(student.averages?.grammar)}</td>
+                                            <td className="py-2 text-gray-700">{formatAverage(student.averages?.reading)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </section>
             </main>
         </div>
     );
