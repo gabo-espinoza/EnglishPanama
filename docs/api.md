@@ -45,7 +45,9 @@ depender del texto del mensaje:
 
 `code` solo aparece en errores `4xx` que lo definen expresamente; si falta, el cliente se guia por el
 codigo HTTP. Codigos vigentes: `PASSWORD_CHANGE_REQUIRED` (`403`, la cuenta debe crear su contrasena antes
-de usar la plataforma) y `PASSWORD_ALREADY_SET` (`409`, la contrasena inicial ya fue creada).
+de usar la plataforma), `PASSWORD_ALREADY_SET` (`409`, la contrasena inicial ya fue creada),
+`GRADE_LOCKED` (`409`, el docente intento declarar el grado de la clase y ya estaba declarado) y
+`GRADE_NOT_SET` (`409`, el gestor intento reiniciar el grado de una clase que no lo tiene declarado).
 
 Codigos usados: `400` (datos invalidos), `401` (sin token o token invalido),
 `403` (sin permiso / funcion desactivada), `404` (no encontrado),
@@ -231,11 +233,15 @@ Devuelve el **perfil del usuario autenticado**. Cada quien ve solo lo suyo: nunc
   "xp": 140,
   "teacherId": 1,
   "classCode": "MGSP2Y",
+  "classGrade": 3,
+  "classLevel": "A1.1",
   "level": 2,
   "xpIntoLevel": 40,
   "xpForNextLevel": 100
 }
 ```
+
+Aqui `level` es el nivel de XP (numerico); el nivel de la clase (A1.1, A1.2 o A1.3) viene en `classLevel`.
 
 **Respuesta 200 (docente):**
 ```json
@@ -244,9 +250,21 @@ Devuelve el **perfil del usuario autenticado**. Cada quien ve solo lo suyo: nunc
   "role": "teacher",
   "alias": "profe_daniel",
   "displayName": "Profe Daniel",
-  "classCode": "MGSP2Y"
+  "classCode": "MGSP2Y",
+  "classGrade": 3,
+  "classLevel": "A1.1"
 }
 ```
+
+`classGrade` (3, 4 o 5) y `classLevel` (`A1.1`, `A1.2` o `A1.3`) son la misma pareja para ambos roles: el
+grado que declaro el docente y el nivel que le corresponde. Si el docente **aun no ha declarado el grado**,
+los dos valen `null` (en el estudiante, el grado es el de la clase de su docente).
+
+| `classGrade` | `classLevel` |
+|---|---|
+| 3 | `A1.1` |
+| 4 | `A1.2` |
+| 5 | `A1.3` |
 
 **Errores:** `404` si la cuenta ya no existe.
 
@@ -276,14 +294,19 @@ Permite editar el **perfil propio**. El nombre de usuario (login) nunca se puede
 
 ### `GET /activities/:moduleSlug` - Protegido, rol `student`
 
-Lista las actividades de un modulo (`vocabulary` | `grammar` | `reading`).
+Lista las actividades de un modulo (`vocabulary` | `grammar` | `reading`) **del nivel de la clase** del
+estudiante (`classLevel`, ver `GET /users/me`). Las actividades de otros niveles no aparecen. Si el docente aun
+no ha declarado el grado, la respuesta es un arreglo vacio.
 
 **Respuesta 200:**
 ```json
 [
-  { "id": 1, "title": "Animales", "gameType": "multiple_choice", "sortOrder": 1 }
+  { "id": 1, "title": "Animales", "gameType": "multiple_choice", "sortOrder": 1, "isExample": false }
 ]
 ```
+
+`isExample` es `true` en las actividades de ejemplo sembradas con `server/scripts/seed-demo-content.js`: no son
+contenido oficial y el cliente las marca como "Ejemplo". Las demas actividades tienen `isExample: false`.
 
 **Errores:** `404` si el modulo no es valido o no existe.
 
@@ -302,7 +325,9 @@ Devuelve las preguntas de una actividad **sin** `correct_answer` - nunca se mand
 }
 ```
 
-**Errores:** `404` si la actividad no existe.
+**Errores:** `404` con `{ "error": "La actividad no existe." }` si la actividad no existe, **es de otro nivel**
+o la clase aun no tiene grado. El mensaje es el mismo en los tres casos, para no revelar que ese id existe en
+otro nivel.
 
 ### `POST /activities/:id/attempts` - Protegido, rol `student`
 
@@ -322,7 +347,9 @@ Envia todas las respuestas de una actividad. El servidor corrige, calcula XP y g
 lo que envie el cliente nunca se toma como puntaje. Solo se corrigen las preguntas
 que pertenecen a la actividad (se ignoran ids ajenos) y faltantes cuentan como incorrectas.
 
-**Errores:** `400` sin respuestas, `404` actividad/estudiante inexistente, `409` actividad sin preguntas.
+**Errores:** `400` sin respuestas, `404` actividad/estudiante inexistente (tambien si la actividad es de otro
+nivel o la clase no tiene grado: `La actividad no existe.`, comprobado antes de corregir y de guardar nada),
+`409` actividad sin preguntas.
 
 ---
 
@@ -351,7 +378,10 @@ Marca el reto de hoy como completado y otorga **10 XP**. Falla con `409` si ya s
 { "completed": true, "completedOn": "2026-11-05", "xpEarned": 10, "totalXp": 150, "level": 2, "xpIntoLevel": 50, "xpForNextLevel": 100 }
 ```
 
-*Nota:* el reto de hoy se calcula como `pool[dayOfYear(fecha_efectiva) % total]`,
+*Nota:* el pool se filtra por el nivel de la clase del estudiante: solo entran los retos cuya pregunta
+pertenece a una actividad de ese nivel. Si el docente no ha declarado el grado, o no hay retos de ese nivel,
+`GET /daily-challenge` y `POST /daily-challenge/complete` responden `404` (`No hay retos diarios configurados.`).
+El reto de hoy se calcula como `pool[dayOfYear(fecha_efectiva) % total]`,
 donde `fecha_efectiva = hoy + offset_demo`. El mismo calculo se usa para la fecha
 de completado, de modo que el modo demo mueve las dos cosas a la vez.
 
@@ -377,6 +407,8 @@ Devuelve el ranking de la clase del estudiante autenticado (por `teacher_id`), o
 ### `GET /teacher/students` - Protegido, rol `teacher`
 
 Lista los estudiantes de la clase del docente autenticado, con nivel, XP, actividades completadas y promedio (%) por modulo.
+Las actividades completadas y los promedios cuentan solo intentos sobre actividades del **nivel actual de la clase**;
+si el docente aun no ha declarado el grado, los estudiantes salen con 0 actividades y promedios `null`.
 
 **Respuesta 200:**
 ```json
@@ -395,7 +427,8 @@ Lista los estudiantes de la clase del docente autenticado, con nivel, XP, activi
 
 ### `GET /teacher/difficult-topics` - Protegido, rol `teacher`
 
-Lista los temas (`questions.topic`) con mayor tasa de error entre los estudiantes de la clase. Acepta `?limit=` (1-50, por defecto 10).
+Lista los temas (`questions.topic`) con mayor tasa de error entre los estudiantes de la clase. Acepta `?limit=` (1-50, por defecto 10). Solo cuenta respuestas sobre actividades del nivel actual de la clase;
+sin grado declarado devuelve `[]`.
 
 **Respuesta 200:**
 ```json
@@ -403,6 +436,68 @@ Lista los temas (`questions.topic`) con mayor tasa de error entre los estudiante
   { "topic": "verbos irregulares", "attempts": 25, "errors": 15, "errorRate": 60 }
 ]
 ```
+
+### `GET /teacher/class` - Protegido, rol `teacher`
+
+Datos de la clase del docente autenticado y estado del grado.
+
+**Respuesta 200:**
+```json
+{
+  "displayName": "Profe Daniel",
+  "classCode": "MGSP2Y",
+  "classGrade": null,
+  "classLevel": null,
+  "gradeLocked": false,
+  "grades": [
+    { "grade": 3, "level": "A1.1" },
+    { "grade": 4, "level": "A1.2" },
+    { "grade": 5, "level": "A1.3" }
+  ]
+}
+```
+
+`classGrade` y `classLevel` son `null` mientras el docente no declare el grado; `gradeLocked` es `true` cuando
+el grado ya quedo bloqueado. `grades` lista los grados posibles y su nivel, para que el cliente pinte las opciones.
+
+**Errores:** `404` (`El docente no existe.`) si la cuenta ya no existe.
+
+### `PUT /teacher/class/grade` - Protegido, rol `teacher`
+
+Declara el grado de la clase **una sola vez**. Una vez declarado queda bloqueado: el docente no puede
+cambiarlo; si fue un error, lo reinicia el gestor de accesos (`POST /staff/teachers/:id/reset-grade`).
+
+**Body:**
+```json
+{ "grade": 4, "confirm": true }
+```
+
+`grade` debe ser el numero 3, 4 o 5 (un texto como `"4"`, un decimal o un booleano se rechazan) y `confirm`
+debe ser exactamente `true`: es la confirmacion de que el docente entiende que no podra cambiarlo.
+
+**Respuesta 200:** el mismo cuerpo que `GET /teacher/class`, ya con el grado declarado:
+```json
+{
+  "displayName": "Profe Daniel",
+  "classCode": "MGSP2Y",
+  "classGrade": 4,
+  "classLevel": "A1.2",
+  "gradeLocked": true,
+  "grades": [
+    { "grade": 3, "level": "A1.1" },
+    { "grade": 4, "level": "A1.2" },
+    { "grade": 5, "level": "A1.3" }
+  ]
+}
+```
+
+**Errores:**
+- `400` (`Debes confirmar que entiendes que el grado no se puede cambiar.`) si `confirm` no es `true`.
+- `400` (`El grado debe ser 3, 4 o 5.`) si `grade` no es uno de esos tres numeros.
+- `404` (`El docente no existe.`) si la cuenta ya no existe.
+- `409` con `code: "GRADE_LOCKED"` (`El grado ya fue declarado y no se puede cambiar. Si fue un error, pide ayuda al gestor de cuentas.`)
+  si el grado ya estaba declarado. La escritura es un unico `UPDATE ... WHERE grade IS NULL`: si dos peticiones
+  compiten, solo una cambia la fila y la otra recibe este `409`.
 
 ---
 
@@ -429,7 +524,7 @@ El middleware `requireStaff` revalida la cuenta contra la base en cada peticion.
 
 | Rol (`staff_role`) | Area | Fase | Puede |
 |---|---|---|---|
-| `access_manager` | `access` | A | Listar cuentas, crear docentes y solicitar suspender/activar |
+| `access_manager` | `access` | A | Listar cuentas, crear docentes, reiniciar MFA o grado de un docente y solicitar suspender/activar |
 | `auditor` | `audit` | A | Ver y verificar la auditoria, aprobar/rechazar solicitudes |
 | `analyst` | `analytics` | A | Ver metricas anonimas (solo lectura) |
 | `content_manager` | `content` | B | Crear y estructurar contenido (queda pendiente de revision) |
@@ -464,6 +559,33 @@ nuevo. Queda en la auditoria (`staff.teacher.reset_mfa`).
 
 **Respuesta 200:** `{ "id": 12, "username": "profe1", "mfaReset": true }`.
 **Errores:** `400` identificador invalido; `404` el docente no existe (tambien si el id es de un estudiante).
+
+### `POST /staff/teachers/:id/reset-grade` - `access_manager`
+
+Reinicia el **grado de la clase** de un docente que se equivoco al declararlo (el docente no puede cambiarlo
+solo, ver `PUT /teacher/class/grade`). Deja el grado y la marca de bloqueo en `NULL`, de modo que el docente
+vuelve a ver la pantalla para declararlo. No toca la contrasena, el MFA, las sesiones ni el avance de los
+estudiantes. Queda en la auditoria (`staff.teacher.reset_grade`).
+
+**Body:**
+```json
+{ "reason": "Grado declarado por error" }
+```
+
+`reason` es obligatorio: de 5 a 40 caracteres (se recortan los espacios de los extremos), sin el caracter `|`
+ni caracteres de control. Se valida **antes** de escribir nada.
+
+**Respuesta 200:** `{ "id": 12, "username": "profe1", "gradeReset": true }`.
+
+**Errores:**
+- `400` (`Identificador de docente invalido.`) si `:id` no es un entero positivo.
+- `400` (`El motivo debe tener entre 5 y 40 caracteres y no puede incluir |.`) si el motivo falta o incumple las reglas.
+- `404` (`El docente no existe.`) si el id no existe o es de un estudiante.
+- `409` con `code: "GRADE_NOT_SET"` (`El grado de esta clase aun no ha sido declarado.`) si la clase no tiene
+  grado declarado (tambien si otro reinicio gano la carrera).
+
+El motivo se guarda en el campo `target` de la auditoria, con el formato `teacher#<id>:<username>:motivo=<motivo>`
+(por ejemplo `teacher#12:profe1:motivo=Grado declarado por error`). Por eso no debe incluir datos personales.
 
 ### `GET /staff/me` - cualquier gestor
 

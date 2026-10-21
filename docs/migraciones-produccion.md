@@ -251,7 +251,7 @@ Variables que deben quedar en el `.env`:
 
 | Variable | Valor | Notas |
 |---|---|---|
-| `NODE_ENV` | `production` | Con esto el servidor **exige** las variables `AUDIT_DB_*` y los scripts de demostración se niegan a correr |
+| `NODE_ENV` | `production` | Con esto el servidor **exige** las variables `AUDIT_DB_*` y los scripts de demostración se niegan a correr (`seed-demo-content.js` solo con `--allow-production`, sección 14.1) |
 | `TRUST_PROXY` | `true` | **Imprescindible detrás de nginx**, junto con el cambio de la sección 6.1 |
 | `JWT_SECRET` | *(ya existe)* | No la cambies: invalidaría todas las sesiones |
 | `STAFF_JWT_SECRET` | *(generada arriba)* | Debe ser **distinta** de `JWT_SECRET` |
@@ -356,7 +356,7 @@ Crea primero **un `access_manager` y un `auditor`**, que son los que se necesita
 
 Otros scripts útiles en la misma carpeta: `list-staff.js` (lista las cuentas, sin secretos) y `reset-staff-mfa.js` (regenera el MFA de una cuenta de gestión).
 
-> **Nunca** corras `seed-demo-staff.js`, `seed-demo-student.js` ni `seed-demo-content.js` en producción: crean cuentas de demostración. Con `NODE_ENV=production` se niegan a correr.
+> **Nunca** corras `seed-demo-staff.js` ni `seed-demo-student.js` en producción: crean cuentas de demostración. Con `NODE_ENV=production` se niegan a correr. `seed-demo-content.js` no crea cuentas (siembra actividades de ejemplo) y solo corre en producción con `--allow-production`, a mano (sección 14.1).
 
 ### 8.1 Crear el primer docente
 
@@ -519,6 +519,112 @@ Si la tabla `users` está vacía, la segunda consulta no imprime filas: es norma
 
 **Rollback.** El código se revierte como en la sección 11. La columna se puede **dejar en su sitio**: es inofensiva para el código anterior (tiene valor por defecto y nadie la lee), así que no hace falta quitarla. Un docente que ya hubiera sido creado con la bandera en `1` entraría, bajo el código viejo, con su contraseña temporal. Solo si hubiera una razón para eliminarla, es `ALTER TABLE users DROP COLUMN must_change_password;` en la VM-BD (después de revertir el código).
 
+## 14. Migración incremental: grado de la clase
+
+Este cambio agrega el **grado de la clase** (3, 4 o 5) y el **nivel** de las actividades (A1.1, A1.2 o A1.3). El docente declara el grado una sola vez y sus estudiantes solo ven las actividades de ese nivel. Archivo: `server/database/migrations/phase4-class-grade.sql`. Es aditiva y repetible (comprueba `information_schema` antes de cada `ALTER`).
+
+| Tabla | Columna nueva | Valor para las filas existentes |
+|---|---|---|
+| `teachers` | `grade` (`TINYINT UNSIGNED NULL`) | `NULL`: el docente aún no ha declarado el grado |
+| `teachers` | `grade_locked_at` (`TIMESTAMP NULL`) | `NULL` |
+| `activities` | `level` (`ENUM('A1.1','A1.2','A1.3') NOT NULL DEFAULT 'A1.1'`) | `A1.1` |
+| `activities` | `is_example` (`TINYINT(1) NOT NULL DEFAULT 0`) | `0`: no es un ejemplo |
+
+> **Esta migración se aplica ANTES de desplegar el código.** El código nuevo lee `teachers.grade` y `activities.level` en el perfil, en las actividades y en el panel docente; si las columnas no existen, esas rutas fallan con `ER_BAD_FIELD_ERROR`. El código viejo, en cambio, ignora las columnas nuevas (tienen valor por defecto o aceptan `NULL`), así que migrar antes es seguro.
+
+Si estás haciendo la migración completa de las secciones 4 y 5, aplica esta después de `prod-upgrade-all.sql` y de la sección 13, y antes del despliegue (sección 7). Si la base ya estaba migrada, hazla por separado como sigue.
+
+**1. Respaldo — [VM-BD]** (mismo procedimiento de la sección 4)
+
+```bash
+mkdir -p ~/backups
+BACKUP=~/backups/englishpanama-$(date +%Y%m%d-%H%M).sql.gz
+sudo mysqldump --single-transaction --routines --triggers englishpanama | gzip > "$BACKUP"
+gunzip -t "$BACKUP" && echo "respaldo OK: $BACKUP"
+```
+
+Recomendado: copia el respaldo **fuera** de la VM (por ejemplo, con `scp` a tu PC).
+
+**2. Llevar el archivo a la VM-BD — [TU PC]** (dentro del clon del repositorio, con la rama que contiene el archivo)
+
+```bash
+scp server/database/migrations/phase4-class-grade.sql TU_USUARIO@IP_VM_BD:~/phase4-class-grade.sql
+```
+
+Igual que en la sección 5.1, si solo se entra a través de la VM-APP agrega `-o ProxyJump=TU_USUARIO@150.136.50.253`.
+
+**3. Aplicar — [VM-BD]** (es la base principal; el archivo usa `DATABASE()`, por eso se indica en el comando)
+
+```bash
+sudo mysql englishpanama < ~/phase4-class-grade.sql && echo "MIGRACION OK"
+```
+
+**4. Verificar — [VM-BD]**
+
+```bash
+# Las columnas del docente existen
+sudo mysql englishpanama -e "SHOW COLUMNS FROM teachers LIKE 'grade%';"
+#   esperado: dos filas, grade y grade_locked_at
+
+# Las columnas de las actividades existen
+sudo mysql englishpanama -e "SHOW COLUMNS FROM activities LIKE 'level';"
+sudo mysql englishpanama -e "SHOW COLUMNS FROM activities LIKE 'is_example';"
+
+# Las actividades existentes quedan en A1.1
+sudo mysql englishpanama -e "SELECT level, COUNT(*) FROM activities GROUP BY level;"
+```
+
+Qué esperar en producción:
+
+- Si `activities` está vacía, la última consulta no imprime filas: es normal (la verificación previa de la sección 3.1 solo confirmó que `users` tiene 0 filas; el contenido de `activities` no se revisó).
+- Si ya hubiera actividades, todas salen en `A1.1` (y con `is_example = 0`). Revisa si realmente son de ese nivel: solo las clases de 3.er grado las verán.
+- Todo docente (los existentes y los que cree el gestor de accesos) empieza con `grade` en `NULL`. Hasta que declare el grado de su clase en su panel, sus estudiantes **no ven actividades** (el listado sale vacío): es el comportamiento esperado, no un error. Avisa a los docentes de que ese es su primer paso.
+
+**5. Desplegar** el código (sección 7) y comprobar el flujo: un docente declara el grado en su panel y sus estudiantes ven las actividades de ese nivel (sección 9).
+
+**Rollback.** El código se revierte como en la sección 11. Las columnas se pueden **dejar en su sitio**: son inofensivas para el código anterior (tienen valor por defecto o aceptan `NULL` y nadie las lee), así que no hace falta quitarlas. Solo si hubiera una razón para eliminarlas, en la VM-BD y después de revertir el código:
+
+```sql
+ALTER TABLE teachers DROP COLUMN grade, DROP COLUMN grade_locked_at;
+ALTER TABLE activities DROP COLUMN level, DROP COLUMN is_example;
+```
+
+Eso pierde el grado declarado por los docentes y la marca de los ejemplos; restaurar el respaldo (sección 11) además pierde lo escrito desde que se hizo.
+
+### 14.1 Cargar las actividades de ejemplo en producción (acción manual)
+
+Mientras no haya contenido oficial, y para que los estudiantes puedan probar la plataforma, `server/scripts/seed-demo-content.js` puede sembrar actividades de **ejemplo** de los tres niveles (A1.1, A1.2 y A1.3) en los módulos `vocabulary`, `grammar` y `reading`. Todas quedan con `is_example = 1` y el panel del estudiante las marca con la etiqueta "Ejemplo"; no son contenido oficial.
+
+> **Esta carga es una acción MANUAL del líder técnico. No forma parte del despliegue** ni de ningún flujo automático: nada la ejecuta salvo que alguien corra el comando a propósito.
+
+Con `NODE_ENV=production` el script se niega a correr, salvo que el comando incluya el indicador `--allow-production`. Solo ese indicador de la línea de comandos lo habilita: ninguna variable de entorno lo hace. Requiere que la migración de esta sección ya esté aplicada.
+
+**[VM-APP]**
+
+```bash
+cd /var/www/englishpanama/api
+node scripts/seed-demo-content.js --allow-production
+```
+
+- Es **repetible**: si una actividad (módulo, título y nivel) ya existe, no se duplica y solo se agregan sus preguntas si no tenía ninguna.
+- Si encuentra una actividad sembrada antes de que existiera `is_example` (mismo módulo, título y nivel), la marca como ejemplo en vez de duplicarla.
+- También agrega a `daily_challenges` hasta 7 preguntas de ejemplo (una por posición libre; no pisa posiciones ya ocupadas).
+- No crea cuentas.
+
+**Retirar los ejemplos.** Cuando haya contenido oficial, en la **[VM-BD]**:
+
+```bash
+# Antes de borrar: cuántos ejemplos hay
+sudo mysql englishpanama -e "SELECT level, COUNT(*) FROM activities WHERE is_example = 1 GROUP BY level;"
+
+# Borrarlos
+sudo mysql englishpanama -e "DELETE FROM activities WHERE is_example = 1;"
+```
+
+> **Advertencia: el borrado es en cascada.** Al borrar una actividad también se borran sus preguntas, **todos los intentos de los estudiantes sobre ella** (y sus respuestas) y los **retos diarios ligados a esas preguntas** (con sus registros de completado). Los estudiantes pierden ese historial y el XP no se recalcula. Haz un respaldo (paso 1) antes de borrar.
+
+`seed-demo-student.js` y `seed-demo-staff.js` **siguen siendo solo de desarrollo**: crean cuentas de demostración y no aceptan `--allow-production`.
+
 ## Lista de verificación
 
 - [ ] Verificación previa pegada y revisada (sección 3)
@@ -527,6 +633,8 @@ Si la tabla `users` está vacía, la segunda consulta no imprime filas: es norma
 - [ ] Usuario `audit_writer` creado con la IP de la VM-APP (`10.0.0.186`), no con `%` (sección 5.3)
 - [ ] Verificaciones 5.4 correctas y **punto de control A** superado
 - [ ] `phase3-must-change-password.sql` aplicado en la VM-BD **antes** del despliegue; `SELECT must_change_password, COUNT(*) FROM users GROUP BY must_change_password;` muestra solo `0` (sección 13)
+- [ ] `phase4-class-grade.sql` aplicado en la VM-BD **antes** del despliegue; `SHOW COLUMNS FROM teachers LIKE 'grade%'` muestra `grade` y `grade_locked_at`, y `SHOW COLUMNS FROM activities LIKE 'level'` / `'is_example'` muestran las columnas (sección 14)
+- [ ] Docentes avisados de que deben declarar el grado de su clase al entrar; ejemplos cargados **a mano** con `node scripts/seed-demo-content.js --allow-production` solo si se decidió (sección 14.1)
 - [ ] nginx envía `X-Forwarded-For $remote_addr` (sección 6.1) y `nginx -t` pasa antes de recargar
 - [ ] Desde fuera, `http://150.136.50.253:3000` **no** responde (sección 10)
 - [ ] `.env` actualizado: `NODE_ENV`, `TRUST_PROXY=true`, `STAFF_*`, `AUDIT_DB_*`; respaldo de `STAFF_MFA_KEY` fuera de la VM (sección 6)
