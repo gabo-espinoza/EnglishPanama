@@ -31,7 +31,7 @@ CREATE TABLE teachers (
     display_name VARCHAR(100) NOT NULL,
     class_code   VARCHAR(10) NOT NULL,
     grade            TINYINT UNSIGNED NULL COMMENT 'Grado de la clase (3, 4 o 5); NULL = aun no declarado',
-    grade_locked_at  TIMESTAMP NULL COMMENT 'Se llena cuando el grado queda bloqueado (ya hay estudiantes o intentos)',
+    grade_locked_at  TIMESTAMP NULL COMMENT 'Fecha en que el docente declaro el grado',
     UNIQUE KEY uq_teachers_class_code (class_code),
     CONSTRAINT fk_teachers_user
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE

@@ -21,7 +21,7 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET @sql := IF(
     (SELECT COUNT(*) FROM information_schema.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'teachers' AND COLUMN_NAME = 'grade_locked_at') = 0,
-    'ALTER TABLE teachers ADD COLUMN grade_locked_at TIMESTAMP NULL COMMENT ''Se llena cuando el grado queda bloqueado (ya hay estudiantes o intentos)''',
+    'ALTER TABLE teachers ADD COLUMN grade_locked_at TIMESTAMP NULL COMMENT ''Fecha en que el docente declaro el grado''',
     'DO 0');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 

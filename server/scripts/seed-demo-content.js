@@ -305,7 +305,9 @@ async function main() {
     console.log(`Modulos: ${mods.n}  Actividades: ${acts.n}  Preguntas: ${qs.n}  Retos diarios: ${dcs.n}`);
     console.log(`Actividades creadas: ${activitiesCreated}  ya existian: ${activitiesKept}`);
     console.log(`Preguntas creadas: ${questionsCreated}  retos creados: ${dailyCreated}`);
-    console.log('Las cuentas estudiante01 y profe.demo ya pueden usar estos modulos.');
+    console.log(process.env.NODE_ENV === 'production'
+        ? 'Contenido de ejemplo cargado.'
+        : 'Las cuentas estudiante01 y profe.demo ya pueden usar estos modulos.');
 }
 
 main()
