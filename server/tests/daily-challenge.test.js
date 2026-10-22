@@ -217,13 +217,10 @@ test('respuesta incorrecta: 200 {correct:false}, sin finalizacion, sin XP y sin 
     if (!ready) { t.skip('sin MySQL'); return; }
     const student = await makeStudent(teacherA);
     const xpAntes = await xpOf(student);
-    const correct = await assignedAnswer(student);
 
     const res = await post(COMPLETE, token(student, 'student'), { answer: 'zzz-respuesta-incorrecta' });
     assert.strictEqual(res.status, 200);
-    const raw = await res.text();
-    assert.deepStrictEqual(JSON.parse(raw), { correct: false });
-    assert.ok(!raw.toLowerCase().includes(String(correct).toLowerCase()), 'no revela la respuesta correcta');
+    assert.deepStrictEqual(await res.json(), { correct: false });
     assert.strictEqual(await completionCount(student), 0);
     assert.strictEqual(await xpOf(student), xpAntes);
 
@@ -296,11 +293,11 @@ test('envios correctos simultaneos: uno gana (201), el resto 409, un solo regist
     for (let i = 0; i < 5; i += 1) {
         const answer = await assignedAnswer(student);
         const tok = token(student, 'student');
-        const results = await Promise.all([1, 2, 3].map(() => post(COMPLETE, tok, { answer })));
+        const results = await Promise.all([1, 2, 3, 4, 5, 6].map(() => post(COMPLETE, tok, { answer })));
         statuses = results.map((r) => r.status).sort();
         if (!statuses.every((s) => s === 200)) break;
     }
-    assert.deepStrictEqual(statuses, [201, 409, 409]);
+    assert.deepStrictEqual(statuses, [201, 409, 409, 409, 409, 409]);
     assert.strictEqual(await completionCount(student), 1);
     assert.strictEqual(await xpOf(student), xpAntes + 10);
 });

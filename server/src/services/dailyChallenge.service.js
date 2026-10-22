@@ -136,6 +136,17 @@ async function completeDailyChallenge(studentId, answer) {
     try {
         await connection.beginTransaction();
 
+        // Primero se bloquea la fila del estudiante: serializa los envios simultaneos del mismo
+        // estudiante. Asi el INSERT (cuya llave foranea toma un candado compartido sobre esa
+        // misma fila) nunca compite con otro envio por el candado: sin interbloqueos.
+        const [studentRows] = await connection.query(
+            'SELECT xp FROM students WHERE user_id = ? FOR UPDATE',
+            [studentId]
+        );
+        if (studentRows.length === 0) {
+            throw new AppError('El estudiante no existe.', 404);
+        }
+
         try {
             await connection.query(
                 'INSERT INTO daily_completions (student_id, challenge_id, completed_on) VALUES (?, ?, ?)',
@@ -148,14 +159,6 @@ async function completeDailyChallenge(studentId, answer) {
             throw err;
         }
 
-        const [studentRows] = await connection.query(
-            'SELECT xp FROM students WHERE user_id = ? FOR UPDATE',
-            [studentId]
-        );
-        if (studentRows.length === 0) {
-            throw new AppError('El estudiante no existe.', 404);
-        }
-
         const totalXp = studentRows[0].xp + xpEarned;
         await connection.query('UPDATE students SET xp = ? WHERE user_id = ?', [totalXp, studentId]);
 
@@ -164,6 +167,17 @@ async function completeDailyChallenge(studentId, answer) {
         return { correct: true, completed: true, completedOn, xpEarned, totalXp, ...progressForXp(totalXp) };
     } catch (err) {
         await connection.rollback();
+        // Capa defensiva: si MySQL aborta por interbloqueo o espera excedida, pero otro envio ya
+        // registro el reto de hoy, la respuesta es la misma que la de un reto completado.
+        if (err.code === 'ER_LOCK_DEADLOCK' || err.code === 'ER_LOCK_WAIT_TIMEOUT') {
+            const [rows] = await pool.query(
+                'SELECT id FROM daily_completions WHERE student_id = ? AND completed_on = ?',
+                [studentId, completedOn]
+            );
+            if (rows.length > 0) {
+                throw new AppError('Ya completaste el reto de hoy.', 409);
+            }
+        }
         throw err;
     } finally {
         connection.release();
