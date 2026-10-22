@@ -28,3 +28,10 @@ export function getRanking(token) {
 export function getDailyChallenge(token) {
     return apiRequest('/daily-challenge', { token });
 }
+
+// Responde el reto de hoy; el servidor califica y solo otorga XP si es correcta.
+// Correcta: { correct: true, completed, completedOn, xpEarned, totalXp, ... }.
+// Incorrecta: { correct: false } (sin revelar la respuesta). 409 si ya se completó hoy.
+export function completeDailyChallenge(token, answer) {
+    return apiRequest('/daily-challenge/complete', { method: 'POST', token, body: { answer } });
+}
