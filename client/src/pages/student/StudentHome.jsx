@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+    completeDailyChallenge,
     getActivities,
     getDailyChallenge,
     getProfile,
@@ -153,11 +154,70 @@ function parseOptions(options) {
     return [];
 }
 
-// Reto diario de solo lectura: muestra la pregunta real. Se monta solo si la clase tiene nivel.
-function DailyChallengeCard({ onUnauthorized }) {
-    const { data, error, loading } = useLoad(getDailyChallenge, onUnauthorized);
+// Reto diario: el estudiante elige una opción y la envía; el servidor la califica y solo
+// otorga XP si es correcta. Nunca se conoce ni se calcula la respuesta correcta en el cliente.
+// Se monta solo si la clase tiene nivel. `onCompleted` recarga perfil y ranking (XP y posición).
+function DailyChallengeCard({ onUnauthorized, onCompleted }) {
+    const { data, error, loading, reload, setData } = useLoad(getDailyChallenge, onUnauthorized);
+    const [selected, setSelected] = useState(null);
+    const [submitting, setSubmitting] = useState(false);
+    const [feedback, setFeedback] = useState({ type: '', text: '' });
+    const submittingRef = useRef(false);
 
     const options = data ? parseOptions(data.question.options) : [];
+    const completed = Boolean(data && data.completed);
+
+    // Si una recarga trae otra pregunta, la selección anterior (un índice) ya no aplica.
+    const questionId = data ? data.question.id : null;
+    useEffect(() => {
+        setSelected(null);
+    }, [questionId]);
+
+    function choose(index) {
+        setSelected(index);
+        setFeedback({ type: '', text: '' });
+    }
+
+    async function handleSubmit(event) {
+        event.preventDefault();
+        // La referencia evita un doble envío antes de que React pinte el botón deshabilitado.
+        if (submittingRef.current || selected === null || completed) return;
+        const session = getSession();
+        if (!session) {
+            onUnauthorized();
+            return;
+        }
+        submittingRef.current = true;
+        setSubmitting(true);
+        setFeedback({ type: '', text: '' });
+        try {
+            const result = await completeDailyChallenge(session.token, options[selected]);
+            if (result.correct) {
+                const xp = Number(result.xpEarned);
+                setFeedback({
+                    type: 'success',
+                    text: Number.isFinite(xp) && xp > 0 ? `¡Correcto! Ganaste ${xp} XP` : '¡Correcto!'
+                });
+                setData((prev) => (prev ? { ...prev, completed: true } : prev));
+                onCompleted();
+            } else {
+                setFeedback({ type: 'wrong', text: 'Esa no es la respuesta. Inténtalo de nuevo.' });
+            }
+        } catch (err) {
+            if (err.status === 401) {
+                onUnauthorized();
+            } else if (err.status === 409) {
+                // Ya estaba completado (otra pestaña o un envío simultáneo): se vuelve a leer el reto.
+                reload();
+                onCompleted();
+            } else {
+                setFeedback({ type: 'error', text: err.message });
+            }
+        } finally {
+            submittingRef.current = false;
+            setSubmitting(false);
+        }
+    }
 
     return (
         <section className={`${CARD} relative overflow-hidden bg-gradient-to-br from-blue-600 to-brand-600`} aria-labelledby="daily-title">
@@ -173,26 +233,56 @@ function DailyChallengeCard({ onUnauthorized }) {
                 )}
 
                 {data && (
-                    <>
-                        <h3 className="mt-1 text-2xl font-display">{data.question.prompt}</h3>
-                        {options.length > 0 && (
+                    <form onSubmit={handleSubmit}>
+                        <h3 id="daily-prompt" className="mt-1 text-2xl font-display">{data.question.prompt}</h3>
+
+                        {completed ? (
+                            <div className="mt-4 space-y-2">
+                                <p className="inline-block rounded-full bg-white/20 px-4 py-2 text-sm font-bold">Reto de hoy completado</p>
+                                {feedback.type === 'success' && (
+                                    <p className="text-sm font-bold text-blue-50" role="status">{feedback.text}</p>
+                                )}
+                            </div>
+                        ) : (
                             <>
-                                <p className="mt-3 text-xs font-bold uppercase tracking-wide text-blue-100">Opciones</p>
-                                <ul className="mt-1 space-y-1 text-sm text-blue-50">
-                                    {options.map((option, index) => (
-                                        <li key={index} className="rounded-lg bg-white/10 px-3 py-1.5">{String(option)}</li>
-                                    ))}
-                                </ul>
+                                {options.length > 0 && (
+                                    <div role="radiogroup" aria-labelledby="daily-prompt" className="mt-3 space-y-2">
+                                        {options.map((option, index) => (
+                                            <label key={index} className="block cursor-pointer">
+                                                <input
+                                                    type="radio"
+                                                    name="daily-option"
+                                                    className="peer sr-only"
+                                                    checked={selected === index}
+                                                    onChange={() => choose(index)}
+                                                />
+                                                <span className="block rounded-lg bg-white/10 px-3 py-2.5 text-sm text-blue-50 transition peer-checked:bg-white peer-checked:font-bold peer-checked:text-blue-600 peer-focus-visible:ring-2 peer-focus-visible:ring-white peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-blue-600">
+                                                    {String(option)}
+                                                </span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                )}
+
+                                <div className="mt-4 flex flex-wrap items-center gap-3">
+                                    <button
+                                        type="submit"
+                                        disabled={selected === null || submitting}
+                                        className="min-h-[44px] rounded-full bg-white px-6 py-2 text-sm font-bold text-blue-600 shadow transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                        {submitting ? 'Enviando...' : 'Responder'}
+                                    </button>
+                                </div>
+
+                                {feedback.type === 'wrong' && (
+                                    <p className="mt-3 rounded-lg bg-white/15 px-3 py-2 text-sm font-bold" role="status">{feedback.text}</p>
+                                )}
+                                {feedback.type === 'error' && (
+                                    <div className="mt-3 rounded-lg bg-white p-3 text-center text-sm text-red-600" role="alert">{feedback.text}</div>
+                                )}
                             </>
                         )}
-                        <div className="mt-4">
-                            {data.completed ? (
-                                <p className="inline-block rounded-full bg-white/20 px-4 py-2 text-sm font-bold">Reto de hoy completado</p>
-                            ) : (
-                                <p className="text-sm text-blue-100">Pronto podrás responder el reto diario.</p>
-                            )}
-                        </div>
-                    </>
+                    </form>
                 )}
             </div>
         </section>
@@ -304,6 +394,12 @@ export default function StudentHome() {
         rankingState.reload();
     }
 
+    // Completar el reto suma XP: se recargan el perfil (barra de XP) y el ranking (posición).
+    function handleChallengeCompleted() {
+        profileState.reload();
+        rankingState.reload();
+    }
+
     const ranking = rankingState.data ? [...rankingState.data].sort((a, b) => a.position - b.position) : null;
     const hasClassLevel = profile && profile.classLevel !== null;
 
@@ -367,7 +463,7 @@ export default function StudentHome() {
                                 <SectionHeader title="Mis misiones" subtitle="Continúa tu aventura" />
                                 {hasClassLevel ? (
                                     <>
-                                        <DailyChallengeCard onUnauthorized={toLogin} />
+                                        <DailyChallengeCard onUnauthorized={toLogin} onCompleted={handleChallengeCompleted} />
                                         <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
                                             {MODULES.map((module) => (
                                                 <ModuleCard key={module.slug} {...module} onUnauthorized={toLogin} />
