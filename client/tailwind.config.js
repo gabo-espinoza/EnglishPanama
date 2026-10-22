@@ -35,6 +35,16 @@ export default {
           900: '#10403C',
         },
       },
+      // Entrada suave para paneles y tarjetas. Se desactiva con prefers-reduced-motion (ver index.css).
+      keyframes: {
+        'fade-in': {
+          '0%': { opacity: '0', transform: 'translateY(4px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+      },
+      animation: {
+        'fade-in': 'fade-in 300ms ease-out',
+      },
     },
   },
   plugins: [],
