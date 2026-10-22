@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Códigos TOTP para la demostración</title>
+<style>
+/* Colores como variables: tema claro por defecto, oscuro según el sistema o el botón. */
+:root {
+  --bg: #f4f6fa; --fg: #0f172a; --card: #ffffff; --bd: #94a3b8; --muted: #475569;
+  --accent: #1d4ed8; --accent-fg: #ffffff; --bar: #2563eb; --track: #dbe3ef;
+  --low: #c2410c; --err: #b91c1c; --warn-bg: #fff1c2; --warn-fg: #4a2f00; --warn-bd: #b45309;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b1220; --fg: #f8fafc; --card: #111c33; --bd: #64748b; --muted: #cbd5e1;
+    --accent: #93c5fd; --accent-fg: #0b1220; --bar: #60a5fa; --track: #26344f;
+    --low: #fb923c; --err: #fca5a5; --warn-bg: #3b2a05; --warn-fg: #fde68a; --warn-bd: #f59e0b;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0b1220; --fg: #f8fafc; --card: #111c33; --bd: #64748b; --muted: #cbd5e1;
+  --accent: #93c5fd; --accent-fg: #0b1220; --bar: #60a5fa; --track: #26344f;
+  --low: #fb923c; --err: #fca5a5; --warn-bg: #3b2a05; --warn-fg: #fde68a; --warn-bd: #f59e0b;
+}
+* { box-sizing: border-box; }
+html { font-size: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 1rem/1.5 system-ui, "Segoe UI", Roboto, Arial, sans-serif; }
+main { max-width: 110rem; margin: 0 auto; padding: 1rem; }
+h1 { font-size: 1.5rem; margin: 0; }
+h2 { font-size: 1.1rem; margin: 0; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+header { display: flex; flex-wrap: wrap; gap: .75rem 1.5rem; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+.tools { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.clock { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 700; }
+button { font: inherit; cursor: pointer; color: var(--fg); background: var(--card); border: 2px solid var(--bd); border-radius: .5rem; padding: .4rem .8rem; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 600; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.alert { background: var(--warn-bg); color: var(--warn-fg); border: 3px solid var(--warn-bd); border-radius: .75rem; padding: .9rem 1.1rem; margin-bottom: 1rem; }
+.alert strong { font-size: 1.15rem; }
+.alert ul { margin: .4rem 0 0; padding-left: 1.25rem; }
+.panel { background: var(--card); border: 2px solid var(--bd); border-radius: .75rem; padding: 1rem; margin-bottom: 1rem; }
+label.title { display: block; font-weight: 700; margin-bottom: .35rem; }
+textarea { width: 100%; min-height: 8rem; resize: vertical; font: .95rem/1.4 ui-monospace, Menlo, Consolas, monospace; color: var(--fg); background: var(--bg); border: 2px solid var(--bd); border-radius: .5rem; padding: .6rem; }
+.row { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; align-items: center; margin-top: .6rem; }
+.row label { display: inline-flex; gap: .4rem; align-items: center; }
+.hint { color: var(--muted); font-size: .9rem; margin: .4rem 0 0; }
+.errors { margin: .75rem 0 0; padding: .6rem 1rem .6rem 2rem; border: 2px solid var(--err); border-radius: .5rem; color: var(--err); }
+.errors[hidden] { display: none; }
+.errors strong { margin-left: -1rem; display: block; }
+.grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr)); }
+.card { background: var(--card); border: 2px solid var(--bd); border-radius: 1rem; padding: 1.1rem 1.25rem; display: flex; flex-direction: column; gap: .6rem; }
+.card h2 { overflow-wrap: anywhere; }
+.code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-weight: 800; letter-spacing: .02em; line-height: 1.1; text-align: center; white-space: nowrap; font-size: clamp(1.8rem, 12vw, 4rem); }
+.bar { height: .9rem; background: var(--track); border-radius: 999px; overflow: hidden; }
+.fill { height: 100%; width: 100%; background: var(--bar); }
+.meta { display: flex; justify-content: space-between; align-items: center; gap: .5rem; color: var(--muted); }
+.secs { font-weight: 700; font-variant-numeric: tabular-nums; }
+.low .fill { background: var(--low); }
+.low .secs { color: var(--low); }
+.next { display: none; color: var(--muted); text-align: center; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 1.25rem; }
+.show-next .next { display: block; }
+.cardwarn { color: var(--warn-fg); background: var(--warn-bg); border: 2px solid var(--warn-bd); border-radius: .5rem; padding: .6rem .8rem; margin: 0; }
+details { margin-top: 1rem; }
+summary { cursor: pointer; font-weight: 700; }
+details code { background: var(--bg); padding: .05rem .3rem; border-radius: .25rem; overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: no-preference) { .fill { transition: width .25s linear; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Códigos TOTP para la demostración</h1>
+    <div class="tools">
+      <span>Hora de esta PC: <span class="clock" id="clock">--:--:--</span></span>
+      <button type="button" id="fs">Pantalla completa</button>
+      <button type="button" id="smaller" aria-label="Texto más pequeño">A-</button>
+      <button type="button" id="bigger" aria-label="Texto más grande">A+</button>
+      <button type="button" id="theme">Tema claro/oscuro</button>
+    </div>
+  </header>
+
+  <div class="alert" role="note">
+    <strong>¡Atención! Esta página muestra códigos de acceso (MFA) en vivo.</strong>
+    <ul>
+      <li>Ábrela solo en las laptops del presentador o de los participantes, durante la demostración.</li>
+      <li>No compartas las claves en chats públicos ni las guardes en el repositorio.</li>
+      <li>Al terminar, pulsa «Borrar todo» y cierra la pestaña.</li>
+    </ul>
+    <p class="hint" style="color:inherit">Si el código no funciona, revisa que la hora de esta PC esté en hora automática.</p>
+  </div>
+
+  <section class="panel" aria-labelledby="t-cuentas">
+    <label class="title" id="t-cuentas" for="accounts">Cuentas (una por línea)</label>
+    <textarea id="accounts" spellcheck="false" autocomplete="off" autocapitalize="off" aria-describedby="ayuda"
+      placeholder="# Una cuenta por línea. Las líneas que empiezan con # se ignoran.&#10;# Ejemplo (RFC 6238, no es una cuenta real):&#10;Ejemplo: GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"></textarea>
+    <p class="hint" id="ayuda">Los códigos aparecen solos al pegar el texto. Para usar otra laptop, copia este mismo bloque de texto y pégalo allá: no hace falta nada más.</p>
+    <div class="row">
+      <button type="button" id="copylist">Copiar la lista</button>
+      <button type="button" id="clear" class="primary">Borrar todo</button>
+      <label><input type="checkbox" id="next"> Mostrar el código siguiente</label>
+    </div>
+    <div class="row">
+      <label><input type="checkbox" id="remember"> Recordar las cuentas en este navegador (localStorage)</label>
+      <span class="hint" style="margin:0">No lo uses en una PC compartida.</span>
+    </div>
+    <div class="errors" id="errors" role="status" hidden></div>
+    <details>
+      <summary>Formatos aceptados y ayuda</summary>
+      <ul>
+        <li><code>Nombre: CLAVE</code> o <code>Nombre CLAVE</code> (la clave puede venir en grupos de 4 letras separados por espacios si usas los dos puntos).</li>
+        <li>Solo <code>CLAVE</code>: la cuenta se llama «Cuenta 1», «Cuenta 2»…</li>
+        <li>La dirección completa <code>otpauth://totp/Etiqueta?secret=CLAVE&amp;issuer=Emisor</code>: se toma el nombre de la etiqueta y la clave del parámetro <code>secret</code>.</li>
+        <li>Ejemplo (RFC 6238, no es una cuenta real): <code>GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ</code>.</li>
+        <li>Esta página calcula códigos de 6 dígitos cada 30 segundos con SHA-1, igual que el servidor. Si una dirección pide otros parámetros, verás un aviso en lugar de un código.</li>
+        <li>No se envía nada a ningún sitio: la página funciona sin conexión y no guarda nada si no marcas «Recordar».</li>
+      </ul>
+    </details>
+  </section>
+
+  <section aria-label="Códigos">
+    <div class="grid" id="grid"></div>
+  </section>
+</main>
+
+<script>
+'use strict';
+
+// <core>
+// Núcleo puro: sin acceso al DOM, para poder probarlo en Node.
+const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+// Base32 (RFC 4648): sin distinguir mayúsculas; ignora espacios, guiones y el relleno "=".
+function base32Decode(str) {
+  const s = String(str).toUpperCase().replace(/[\s-]/g, '').replace(/=+$/, '');
+  if (!s) throw new Error('clave vacía');
+  const out = [];
+  let bits = 0, val = 0;
+  for (let i = 0; i < s.length; i++) {
+    const idx = B32.indexOf(s[i]);
+    if (idx < 0) throw new Error('carácter no válido');
+    val = ((val << 5) | idx) & 0xfff;
+    bits += 5;
+    if (bits >= 8) { bits -= 8; out.push((val >>> bits) & 0xff); }
+  }
+  return Uint8Array.from(out);
+}
+
+// SHA-1 (FIPS 180-4) sobre Uint8Array; devuelve Uint8Array de 20 bytes.
+function sha1(msg) {
+  const len = msg.length;
+  const total = Math.ceil((len + 9) / 64) * 64;
+  const buf = new Uint8Array(total);
+  buf.set(msg);
+  buf[len] = 0x80;
+  const dv = new DataView(buf.buffer);
+  dv.setUint32(total - 8, Math.floor(len / 0x20000000) >>> 0); // bits altos de la longitud
+  dv.setUint32(total - 4, (len << 3) >>> 0);                  // bits bajos de la longitud
+  let h0 = 0x67452301, h1 = 0xefcdab89 | 0, h2 = 0x98badcfe | 0, h3 = 0x10325476, h4 = 0xc3d2e1f0 | 0;
+  const w = new Int32Array(80);
+  for (let o = 0; o < total; o += 64) {
+    for (let i = 0; i < 16; i++) w[i] = dv.getInt32(o + i * 4);
+    for (let i = 16; i < 80; i++) {
+      const t = w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16];
+      w[i] = (t << 1) | (t >>> 31);
+    }
+    let a = h0, b = h1, c = h2, d = h3, e = h4;
+    for (let i = 0; i < 80; i++) {
+      let f, k;
+      if (i < 20) { f = (b & c) | (~b & d); k = 0x5a827999; }
+      else if (i < 40) { f = b ^ c ^ d; k = 0x6ed9eba1; }
+      else if (i < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8f1bbcdc | 0; }
+      else { f = b ^ c ^ d; k = 0xca62c1d6 | 0; }
+      const t = (((a << 5) | (a >>> 27)) + f + e + k + w[i]) | 0;
+      e = d; d = c; c = (b << 30) | (b >>> 2); b = a; a = t;
+    }
+    h0 = (h0 + a) | 0; h1 = (h1 + b) | 0; h2 = (h2 + c) | 0; h3 = (h3 + d) | 0; h4 = (h4 + e) | 0;
+  }
+  const out = new Uint8Array(20);
+  const odv = new DataView(out.buffer);
+  [h0, h1, h2, h3, h4].forEach((h, i) => odv.setUint32(i * 4, h >>> 0));
+  return out;
+}
+
+// HMAC-SHA1 (RFC 2104) con bloque de 64 bytes; acepta claves y mensajes de cualquier largo.
+function hmacSha1(key, msg) {
+  let k = key.length > 64 ? sha1(key) : key;
+  const ipad = new Uint8Array(64 + msg.length), opad = new Uint8Array(84);
+  for (let i = 0; i < 64; i++) {
+    const kb = i < k.length ? k[i] : 0;
+    ipad[i] = kb ^ 0x36;
+    opad[i] = kb ^ 0x5c;
+  }
+  ipad.set(msg, 64);
+  opad.set(sha1(ipad), 64);
+  return sha1(opad);
+}
+
+// HOTP (RFC 4226). El contador puede ser de hasta 2^53; se escribe en 8 bytes big-endian.
+function hotp(secret, counter, digits) {
+  digits = digits || 6;
+  const key = base32Decode(secret);
+  const msg = new Uint8Array(8);
+  const dv = new DataView(msg.buffer);
+  dv.setUint32(0, Math.floor(counter / 4294967296) >>> 0);
+  dv.setUint32(4, counter >>> 0);
+  const h = hmacSha1(key, msg);
+  const off = h[19] & 0x0f;
+  const bin = ((h[off] & 0x7f) << 24) | (h[off + 1] << 16) | (h[off + 2] << 8) | h[off + 3];
+  return String(bin % Math.pow(10, digits)).padStart(digits, '0');
+}
+
+// TOTP (RFC 6238): SHA-1, 6 dígitos, 30 s, igual que server/src/utils/totp.js.
+function totp(secret, timeMs, period, digits) {
+  period = period || 30;
+  return hotp(secret, Math.floor(timeMs / (period * 1000)), digits || 6);
+}
+
+function safeDecode(s) {
+  try { return decodeURIComponent(s); } catch (e) { return s; }
+}
+
+// Valida la clave sin repetirla jamás en los mensajes.
+function checkSecret(name, sec, warning) {
+  const clean = String(sec).replace(/[\s-]/g, '').replace(/=+$/, '');
+  if (!clean) return { error: 'la línea no tiene clave' };
+  if (!/^[A-Za-z2-7]+$/.test(clean)) return { error: 'la clave tiene caracteres no válidos (solo se permiten letras A-Z y números del 2 al 7)' };
+  if (clean.length < 16) return { error: 'la clave es demasiado corta (normalmente tiene 32 caracteres)' };
+  return { name: name, secret: clean.toUpperCase(), warning: warning || '' };
+}
+
+function parseUri(raw) {
+  const rest = raw.slice('otpauth://'.length);
+  const q = rest.indexOf('?');
+  const path = q < 0 ? rest : rest.slice(0, q);
+  let query = q < 0 ? '' : rest.slice(q + 1);
+  const hash = query.indexOf('#');
+  if (hash >= 0) query = query.slice(0, hash);
+  const slash = path.indexOf('/');
+  const type = (slash < 0 ? path : path.slice(0, slash)).toLowerCase();
+  if (type !== 'totp') return { error: 'solo se admiten direcciones otpauth de tipo totp' };
+  let label = slash < 0 ? '' : safeDecode(path.slice(slash + 1));
+  const colon = label.indexOf(':');
+  if (colon >= 0) label = label.slice(colon + 1); // quita el prefijo "emisor:"
+  const p = Object.create(null);
+  query.split('&').forEach(function (kv) {
+    if (!kv) return;
+    const e = kv.indexOf('=');
+    const k = safeDecode(e < 0 ? kv : kv.slice(0, e)).toLowerCase();
+    p[k] = e < 0 ? '' : safeDecode(kv.slice(e + 1).replace(/\+/g, ' '));
+  });
+  if (!p.secret) return { error: 'la dirección otpauth no incluye la clave (secret)' };
+  const diff = [];
+  if (p.algorithm !== undefined && p.algorithm.toUpperCase() !== 'SHA1') diff.push('algoritmo ' + p.algorithm.slice(0, 12));
+  if (p.digits !== undefined && Number(p.digits) !== 6) diff.push(p.digits.slice(0, 4) + ' dígitos');
+  if (p.period !== undefined && Number(p.period) !== 30) diff.push('periodo de ' + p.period.slice(0, 6) + ' s');
+  const warning = diff.length
+    ? 'Esta cuenta usa parámetros distintos (' + diff.join(', ') + '). Esta página solo calcula SHA-1, 6 dígitos y 30 s, así que no muestra un código para evitar uno incorrecto.'
+    : '';
+  return checkSecret(label.trim(), p.secret, warning);
+}
+
+function parseLine(raw) {
+  if (/^otpauth:\/\//i.test(raw)) return parseUri(raw);
+  const colon = raw.lastIndexOf(':');
+  if (colon >= 0) return checkSecret(raw.slice(0, colon).trim(), raw.slice(colon + 1));
+  const t = raw.split(/\s+/);
+  if (t.length === 1) return checkSecret('', raw);
+  const last = t[t.length - 1].replace(/-/g, '');
+  const grouped = t.every(function (x) { return /^[A-Za-z2-7=-]+$/.test(x); }) && t.join('').length >= 16;
+  // Una clave larga al final es "Nombre CLAVE"; si no, y todo parece base32, es una clave en grupos.
+  if (last.length < 16 && grouped) return checkSecret('', raw);
+  return checkSecret(t.slice(0, -1).join(' '), t[t.length - 1]);
+}
+
+// Convierte el texto pegado en cuentas y errores (con número de línea, sin mostrar claves).
+function parseAccounts(text) {
+  const accounts = [], errors = [], used = Object.create(null);
+  let auto = 0;
+  String(text).split(/\r\n|\r|\n/).forEach(function (line, i) {
+    const raw = line.trim();
+    if (!raw || raw[0] === '#') return;
+    const r = parseLine(raw);
+    if (r.error) { errors.push({ line: i + 1, reason: r.error }); return; }
+    let name = r.name || ('Cuenta ' + (++auto));
+    if (used[name]) {
+      let n = 2;
+      while (used[name + ' (' + n + ')']) n++;
+      name = name + ' (' + n + ')';
+    }
+    used[name] = true;
+    accounts.push({ name: name, secret: r.secret, warning: r.warning });
+  });
+  return { accounts: accounts, errors: errors };
+}
+// </core>
+
+// ---- Interfaz ----
+(function () {
+  const KEY = 'ep_demo_totp_v1';
+  const PERIOD_MS = 30000;
+  const $ = function (id) { return document.getElementById(id); };
+  const text = $('accounts'), grid = $('grid'), errBox = $('errors');
+  const remember = $('remember'), nextBox = $('next');
+  let cards = [];
+  let zoom = 1;
+
+  const spaced = function (c) { return c.slice(0, 3) + ' ' + c.slice(3); };
+  const two = function (n) { return String(n).padStart(2, '0'); };
+  const el = function (tag, cls, txt) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (txt !== undefined) e.textContent = txt;
+    return e;
+  };
+
+  // Reconstruye las tarjetas con textContent (nunca innerHTML) a partir del texto actual.
+  function render() {
+    const res = parseAccounts(text.value);
+    errBox.textContent = '';
+    errBox.hidden = res.errors.length === 0;
+    if (res.errors.length) {
+      errBox.appendChild(el('strong', '', 'Estas líneas no se pudieron usar (el resto sí funciona):'));
+      res.errors.forEach(function (e) {
+        errBox.appendChild(el('div', '', 'Línea ' + e.line + ': ' + e.reason + '.'));
+      });
+    }
+    grid.textContent = '';
+    cards = res.accounts.map(function (acc) {
+      const root = el('article', 'card');
+      root.setAttribute('aria-label', acc.name);
+      root.appendChild(el('h2', '', acc.name));
+      const card = { acc: acc, root: root, counter: -1 };
+      if (acc.warning) {
+        root.appendChild(el('p', 'cardwarn', acc.warning));
+        return card;
+      }
+      card.code = el('div', 'code', '--- ---');
+      card.code.setAttribute('aria-live', 'off');
+      const bar = el('div', 'bar'), fill = el('div', 'fill');
+      bar.appendChild(fill);
+      card.fill = fill;
+      const meta = el('div', 'meta');
+      card.secs = el('span', 'secs', '');
+      const copy = el('button', '', 'Copiar');
+      copy.type = 'button';
+      copy.addEventListener('click', function () { copyTo(copy, card.plain, 'Copiar'); });
+      meta.appendChild(card.secs);
+      meta.appendChild(copy);
+      card.next = el('div', 'next', '');
+      [card.code, bar, meta, card.next].forEach(function (n) { root.appendChild(n); });
+      return card;
+    });
+    cards.forEach(function (c) { grid.appendChild(c.root); });
+    tick(true);
+  }
+
+  // Se llama cada 250 ms; todo sale de Date.now(), así que no se acumula atraso.
+  function tick(force) {
+    const now = Date.now();
+    const d = new Date(now);
+    $('clock').textContent = two(d.getHours()) + ':' + two(d.getMinutes()) + ':' + two(d.getSeconds());
+    const counter = Math.floor(now / PERIOD_MS);
+    const left = PERIOD_MS - (now % PERIOD_MS);
+    cards.forEach(function (c) {
+      if (c.acc.warning) return;
+      if (force === true || c.counter !== counter) {
+        c.counter = counter;
+        c.plain = totp(c.acc.secret, now);
+        c.code.textContent = spaced(c.plain);
+        c.next.textContent = 'Siguiente: ' + spaced(totp(c.acc.secret, now + PERIOD_MS));
+      }
+      c.fill.style.width = (left / PERIOD_MS * 100).toFixed(1) + '%';
+      c.secs.textContent = 'Cambia en ' + Math.ceil(left / 1000) + ' s';
+      c.root.classList.toggle('low', left <= 5000);
+    });
+  }
+
+  // Copiar: API moderna si existe; si no (http:// o navegador antiguo), textarea temporal.
+  function legacyCopy(value) {
+    return new Promise(function (ok, fail) {
+      const t = document.createElement('textarea');
+      t.value = value;
+      t.setAttribute('readonly', '');
+      t.style.position = 'fixed';
+      t.style.opacity = '0';
+      document.body.appendChild(t);
+      t.select();
+      let done = false;
+      try { done = document.execCommand('copy'); } catch (e) { done = false; }
+      document.body.removeChild(t);
+      return done ? ok() : fail(new Error('copia no disponible'));
+    });
+  }
+  function copyTo(btn, value, label) {
+    const run = navigator.clipboard && navigator.clipboard.writeText
+      ? navigator.clipboard.writeText(value).catch(function () { return legacyCopy(value); })
+      : legacyCopy(value);
+    run.then(function () { return 'Copiado'; }, function () { return 'No se pudo copiar'; }).then(function (msg) {
+      btn.textContent = msg;
+      btn.focus();
+      setTimeout(function () { btn.textContent = label; }, 1500);
+    });
+  }
+
+  // Almacenamiento: solo si el usuario lo pide; todo en try/catch (el modo privado puede fallar).
+  function save() {
+    try { if (remember.checked) localStorage.setItem(KEY, text.value); } catch (e) { /* sin almacenamiento */ }
+  }
+  function wipeStored() {
+    try { localStorage.removeItem(KEY); } catch (e) { /* sin almacenamiento */ }
+  }
+
+  text.addEventListener('input', function () { render(); save(); });
+  remember.addEventListener('change', function () { if (remember.checked) save(); else wipeStored(); });
+  nextBox.addEventListener('change', function () { grid.classList.toggle('show-next', nextBox.checked); });
+  $('copylist').addEventListener('click', function () { copyTo($('copylist'), text.value, 'Copiar la lista'); });
+  $('clear').addEventListener('click', function () {
+    text.value = '';
+    remember.checked = false;
+    wipeStored();
+    render();
+    text.focus();
+  });
+
+  function setZoom(delta) {
+    zoom = Math.min(2.2, Math.max(0.7, Math.round((zoom + delta) * 100) / 100));
+    document.documentElement.style.fontSize = (zoom * 100) + '%';
+  }
+  $('smaller').addEventListener('click', function () { setZoom(-0.15); });
+  $('bigger').addEventListener('click', function () { setZoom(0.15); });
+
+  $('theme').addEventListener('click', function () {
+    const root = document.documentElement;
+    const mq = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
+    const dark = root.dataset.theme ? root.dataset.theme === 'dark' : !!(mq && mq.matches);
+    root.dataset.theme = dark ? 'light' : 'dark';
+  });
+
+  // Pantalla completa (con prefijo de WebKit para Safari); se oculta si no existe.
+  const de = document.documentElement;
+  const reqFs = de.requestFullscreen || de.webkitRequestFullscreen;
+  const exitFs = document.exitFullscreen || document.webkitExitFullscreen;
+  if (!reqFs) {
+    $('fs').hidden = true;
+  } else {
+    $('fs').addEventListener('click', function () {
+      try {
+        const p = (document.fullscreenElement || document.webkitFullscreenElement)
+          ? exitFs.call(document) : reqFs.call(de);
+        if (p && p.catch) p.catch(function () { /* ignorar */ });
+      } catch (e) { /* ignorar */ }
+    });
+  }
+
+  try {
+    const saved = localStorage.getItem(KEY);
+    if (saved !== null) { text.value = saved; remember.checked = true; }
+  } catch (e) { /* sin almacenamiento */ }
+
+  render();
+  setInterval(tick, 250);
+})();
+</script>
+</body>
+</html>
