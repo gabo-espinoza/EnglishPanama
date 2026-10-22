@@ -11,8 +11,9 @@ async function getToday(req, res, next) {
 
 async function complete(req, res, next) {
     try {
-        const result = await dailyChallengeService.completeDailyChallenge(req.user.id);
-        res.status(201).json(result);
+        const result = await dailyChallengeService.completeDailyChallenge(req.user.id, req.body?.answer);
+        // Respuesta incorrecta: 200 sin nada escrito. Correcta: 201 con el XP otorgado.
+        res.status(result.correct ? 201 : 200).json(result);
     } catch (err) {
         next(err);
     }

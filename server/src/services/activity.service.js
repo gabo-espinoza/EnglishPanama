@@ -2,23 +2,9 @@ const pool = require('../config/db');
 const AppError = require('../utils/AppError');
 const { xpForScore, progressForXp } = require('./xp.service');
 const { getClassLevelForStudent } = require('./classLevel.service');
+const { normalizeAnswer } = require('../utils/answers');
 
 const VALID_MODULES = ['vocabulary', 'grammar', 'reading'];
-
-// Compara la respuesta del estudiante con la guardada, sin importar el formato
-// (string, numero o arreglo). La respuesta correcta vive SOLO en el servidor:
-// nunca se envia al cliente antes de que responda.
-function normalizeAnswer(value) {
-    if (value === null || value === undefined) return '';
-    if (Array.isArray(value)) return value.map(normalizeAnswer).join('|');
-    if (typeof value === 'object') {
-        return Object.keys(value)
-            .sort()
-            .map((key) => `${key}:${normalizeAnswer(value[key])}`)
-            .join('|');
-    }
-    return String(value).trim().toLowerCase();
-}
 
 async function listActivitiesByModule(studentId, moduleSlug) {
     if (!VALID_MODULES.includes(moduleSlug)) {

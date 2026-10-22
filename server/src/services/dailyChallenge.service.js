@@ -3,9 +3,12 @@ const AppError = require('../utils/AppError');
 const { getDemoDayOffset } = require('./settings.service');
 const { progressForXp } = require('./xp.service');
 const { getClassLevelForStudent } = require('./classLevel.service');
+const { normalizeAnswer } = require('../utils/answers');
 
 // XP que otorga completar el reto diario.
 const DAILY_CHALLENGE_XP = 10;
+// Largo maximo de la respuesta que se acepta (las opciones reales son cortas).
+const MAX_ANSWER_LENGTH = 200;
 
 function addDays(date, days) {
     const copy = new Date(date.getTime());
@@ -83,8 +86,50 @@ async function getDailyChallenge(studentId) {
     };
 }
 
-async function completeDailyChallenge(studentId) {
+// Valida la forma de la respuesta: texto no vacio o numero finito, de largo acotado.
+function assertValidAnswer(answer) {
+    const isText = typeof answer === 'string';
+    const isNumber = typeof answer === 'number' && Number.isFinite(answer);
+    if (!isText && !isNumber) {
+        throw new AppError('Debes enviar tu respuesta.', 400);
+    }
+    const text = String(answer);
+    if (text.trim() === '') {
+        throw new AppError('Debes enviar tu respuesta.', 400);
+    }
+    if (text.length > MAX_ANSWER_LENGTH) {
+        throw new AppError(`La respuesta no puede superar ${MAX_ANSWER_LENGTH} caracteres.`, 400);
+    }
+}
+
+// Califica la respuesta contra la pregunta asignada hoy al estudiante. Si es correcta registra
+// la finalizacion y otorga el XP; si no, no escribe nada y no revela la respuesta correcta.
+async function completeDailyChallenge(studentId, answer) {
+    assertValidAnswer(answer);
+
     const { challenge, completedOn } = await resolveTodayChallenge(studentId);
+
+    // Un reto ya completado responde 409 ANTES de calificar: asi no se revela si una
+    // respuesta es correcta una vez terminado el reto.
+    const [doneRows] = await pool.query(
+        'SELECT id FROM daily_completions WHERE student_id = ? AND completed_on = ?',
+        [studentId, completedOn]
+    );
+    if (doneRows.length > 0) {
+        throw new AppError('Ya completaste el reto de hoy.', 409);
+    }
+
+    const [questionRows] = await pool.query(
+        'SELECT correct_answer AS correctAnswer FROM questions WHERE id = ?',
+        [challenge.questionId]
+    );
+    if (questionRows.length === 0) {
+        throw new AppError('El reto de hoy no tiene una pregunta valida.', 409);
+    }
+    if (normalizeAnswer(answer) !== normalizeAnswer(questionRows[0].correctAnswer)) {
+        return { correct: false };
+    }
+
     const xpEarned = DAILY_CHALLENGE_XP;
 
     const connection = await pool.getConnection();
@@ -116,7 +161,7 @@ async function completeDailyChallenge(studentId) {
 
         await connection.commit();
 
-        return { completed: true, completedOn, xpEarned, totalXp, ...progressForXp(totalXp) };
+        return { correct: true, completed: true, completedOn, xpEarned, totalXp, ...progressForXp(totalXp) };
     } catch (err) {
         await connection.rollback();
         throw err;
