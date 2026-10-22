@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { login } from '../../api/staff';
 import { ApiError } from '../../api/client';
 import { getStaffSession, saveStaffSession } from '../../api/staffSession';
+import { clearPendingNotice, peekPendingNotice } from '../../api/sessionPolicy';
 import AuthBackground from '../../components/AuthBackground';
 
 // Inicio de sesión del personal de gestión: usuario, contraseña y código del autenticador.
@@ -13,8 +14,12 @@ export default function StaffLogin() {
     const [password, setPassword] = useState('');
     const [code, setCode] = useState('');
     // Mensaje que deja StaffRoute al devolver aquí al usuario (sesión vencida).
-    const [error, setError] = useState(location.state?.notice || '');
+    const [error, setError] = useState(location.state?.notice || peekPendingNotice() || '');
     const [loading, setLoading] = useState(false);
+    // El aviso de cierre por recarga se muestra una vez.
+    useEffect(() => {
+        clearPendingNotice();
+    }, []);
 
     // Si ya hay sesión de staff, StaffRoute la confirma con el servidor.
     if (getStaffSession()) return <Navigate to="/staff" replace />;
