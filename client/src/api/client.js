@@ -17,11 +17,17 @@ export async function apiRequest(path, { method = 'GET', body, token } = {}) {
     const headers = { 'Content-Type': 'application/json' };
     if (token) headers.Authorization = `Bearer ${token}`;
 
-    const response = await fetch(`/api${path}`, {
-        method,
-        headers,
-        body: body ? JSON.stringify(body) : undefined
-    });
+    let response;
+    try {
+        response = await fetch(`/api${path}`, {
+            method,
+            headers,
+            body: body ? JSON.stringify(body) : undefined
+        });
+    } catch {
+        // Servidor caído o sin red: fetch lanza un TypeError en inglés. Estado 0 = sin respuesta HTTP.
+        throw new ApiError('No se pudo conectar con el servidor. Revisa tu conexión e inténtalo de nuevo.', 0, 'NETWORK_ERROR');
+    }
 
     const data = await response.json().catch(() => ({}));
 

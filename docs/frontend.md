@@ -16,17 +16,22 @@ Se abre en `http://localhost:5173`.
 
 ```
 src/
-├── api/                      Conexión con el backend y sesión (student.js y teacher.js: llamadas de cada panel)
+├── api/                      Conexión con el backend y sesiones. client.js (apiRequest y ApiError),
+│                             session.js (sesión de estudiante y docente), staffSession.js (sesión de gestión)
+│                             y auth.js, student.js, teacher.js y staff.js (llamadas de cada área)
 ├── components/
 │   ├── AuthBackground.jsx    Fondo con ráfagas de viento para Login y Registro
+│   ├── WindBackdrop.jsx      Fondo fijo de los paneles (estudiante, docente y gestión)
 │   ├── ProtectedRoute.jsx    Protege rutas según sesión y rol
+│   ├── StaffRoute.jsx        Guarda de /staff y contexto useStaff() (rol y área desde GET /api/staff/me)
 │   └── TopBar.jsx            Barra superior de los paneles: nombre del usuario y cierre de sesión
 ├── pages/
-│   ├── auth/                 Login.jsx y Register.jsx
+│   ├── auth/                 Login.jsx, Register.jsx, MfaSetup.jsx y SetInitialPassword.jsx
+│   ├── staff/                StaffLogin.jsx, StaffLayout.jsx, IdentityAccess.jsx, Audit.jsx y Analytics.jsx
 │   ├── student/              StudentHome.jsx (panel del estudiante)
 │   └── teacher/              TeacherHome.jsx (panel docente)
 ├── App.jsx
-├── index.css                 Clases base (auth-card, auth-input, auth-button)
+├── index.css                 Clases base (auth-card, auth-input, auth-button) y animación de entrada
 └── main.jsx
 ```
 
@@ -49,7 +54,12 @@ Definida en `client/tailwind.config.js`.
 | `blue-300` | `#5DC1B9` | Aros de enfoque y acentos |
 | `blue-200` | `#8AE0DB` | Bordes suaves |
 
-**Importante:** en `tailwind.config.js` las escalas `blue` y `green` de Tailwind están redefinidas con la misma paleta turquesa. Cualquier clase como `bg-blue-600` o `text-green-600` se ve turquesa en todo el proyecto. Para cambiar el color de la app basta con editar esos valores.
+**Importante:** en `tailwind.config.js` la escala `blue` de Tailwind está redefinida con la paleta turquesa. Cualquier clase como `bg-blue-600` o `text-blue-600` se ve turquesa en todo el proyecto. Para cambiar el color de la app basta con editar esos valores.
+
+La escala `brand` solo tiene los tonos 100 a 600. Clases como `brand-50`, `brand-700`, `brand-800` o `brand-900` no existen: no generan ningún estilo.
+
+### Animación `animate-fade-in`
+Definida en `tailwind.config.js` (keyframes `fade-in`, 300 ms, con un desplazamiento de 4 px). Se usa al entrar en las pestañas y paneles, y en el menú móvil de gestión. `index.css` la quita cuando el usuario tiene activado `prefers-reduced-motion`.
 
 ## Componentes
 
@@ -61,6 +71,15 @@ Envuelve las pantallas de autenticación: fondo oscuro con degradado turquesa y 
   <div className="auth-card">...</div>
 </AuthBackground>
 ```
+
+### `WindBackdrop`
+Fondo fijo de los paneles de estudiante, docente y gestión: degradado turquesa con las mismas ráfagas en SVG. Es decorativo (`aria-hidden`), no recibe clics (`pointer-events-none`) y queda detrás del contenido de la página.
+
+## Cliente HTTP (`api/client.js`)
+
+`apiRequest(path, { method, body, token })` envuelve `fetch` con la base `/api`. Un error HTTP lanza un `ApiError` con `status` (el número HTTP) y `code` (el código que envía el servidor, si lo hay). Las pantallas deciden por esos campos y no por el texto del mensaje.
+
+Sin conexión, `fetch` falla antes de recibir respuesta. En ese caso `apiRequest` lanza un `ApiError` con `status: 0` y `code: 'NETWORK_ERROR'`, con el mensaje "No se pudo conectar con el servidor. Revisa tu conexión e inténtalo de nuevo.".
 
 ## Pantallas implementadas
 
@@ -95,23 +114,58 @@ Envuelve las pantallas de autenticación: fondo oscuro con degradado turquesa y 
 - Red de seguridad: si una sesión vieja recibe `403` con `code: "PASSWORD_CHANGE_REQUIRED"`, el cliente HTTP (`api/client.js`) descarta la sesión y lleva a `/login`, donde el flujo normal lo conduce a crear la contraseña.
 
 ### Panel docente (`/teacher`)
-- Muestra el **código de la clase** (para compartirlo con los estudiantes) y la tarjeta **"Nivel de la clase"**. Los datos salen de `GET /api/teacher/class` (`api/teacher.js`).
-- **Sin grado declarado:** ofrece un botón por cada opción de `grades` (por ejemplo "3.º grado · A1.1"). Al elegir una, aparece un aviso de que el nivel **no se puede cambiar durante todo el periodo escolar** y que, si se equivoca, deberá pedir ayuda al gestor de cuentas, junto con la casilla "Entiendo que no podré cambiarlo". El botón "Confirmar …" sigue desactivado hasta marcar la casilla.
-- **Confirmación:** envía `PUT /api/teacher/class/grade` con `{ grade, confirm: true }` (el cliente siempre manda `confirm: true`; el servidor es la autoridad y exige ambos). Con la respuesta 200 la tarjeta pasa a modo bloqueado.
-- **Con grado declarado:** muestra el grado y el nivel y un candado (por ejemplo "🔒 3.º grado · A1.1") y el texto "Si fue un error, abre un ticket con el gestor de cuentas". Ya no hay botones para cambiarlo. Es el estado también al volver a entrar.
-- Si otra petición ya había declarado el grado (`409` con `code: "GRADE_LOCKED"`), el cliente recarga `GET /api/teacher/class` y muestra el grado ya declarado. Un `401` limpia la sesión y lleva al login; los demás errores se muestran en la tarjeta.
-- Debajo, la tarjeta **"Estudiantes de tu clase"** con el número de estudiantes y una tabla (con scroll horizontal en pantallas estrechas) con alias, XP, nivel de XP, actividades completadas y promedio por módulo (Vocabulary, Grammar y Reading; "—" si no hay intentos). Los datos salen de `GET /api/teacher/students` (`getStudents` en `api/teacher.js`).
-- Esta tarjeta carga por separado de la clase: si falla, muestra su error sin afectar al resto del panel. Sin estudiantes muestra "Aún no hay estudiantes registrados con tu código de clase." Un `401` limpia la sesión y lleva al login.
+Tres pestañas (**Mi clase**, **Estudiantes** y **Progreso**). Solo se monta el panel de la pestaña activa; por eso las pestañas no llevan `aria-controls`. Cada pestaña tiene su propia carga: si una falla, las demás siguen funcionando.
+
+- **Mi clase:** muestra el **código de la clase** (para compartirlo con los estudiantes) y la tarjeta **"Nivel de la clase"**. Los datos salen de `GET /api/teacher/class` (`api/teacher.js`).
+  - **Sin grado declarado:** ofrece un botón por cada opción de `grades` (por ejemplo "3.º grado · A1.1"). Al elegir una, aparece un aviso de que el nivel **no se puede cambiar durante todo el periodo escolar** y que, si se equivoca, deberá pedir ayuda al gestor de cuentas, junto con la casilla "Entiendo que no podré cambiarlo". El botón "Confirmar …" sigue desactivado hasta marcar la casilla.
+  - **Confirmación:** envía `PUT /api/teacher/class/grade` con `{ grade, confirm: true }` (el cliente siempre manda `confirm: true`; el servidor es la autoridad y exige ambos). Con la respuesta 200 la tarjeta pasa a modo bloqueado.
+  - **Con grado declarado:** muestra el grado y el nivel y un candado (por ejemplo "🔒 3.º grado · A1.1") y el texto "Si fue un error, abre un ticket con el gestor de cuentas". Ya no hay botones para cambiarlo. Es el estado también al volver a entrar.
+  - Si otra petición ya había declarado el grado (`409` con `code: "GRADE_LOCKED"`), el cliente recarga `GET /api/teacher/class` y muestra el grado ya declarado. Un `401` limpia la sesión y lleva al login; los demás errores se muestran en la tarjeta.
+- **Estudiantes:** la tarjeta "Estudiantes de tu clase" con el número de estudiantes, orden por XP (con columna "Puesto") o por alias de A a Z, y una tabla (con scroll horizontal en pantallas estrechas) con alias, XP, nivel de XP, actividades completadas y promedio por módulo (Vocabulario, Gramática y Lectura; "—" si no hay intentos). Los datos salen de `GET /api/teacher/students` (`getStudents` en `api/teacher.js`). Sin estudiantes muestra "Aún no hay estudiantes registrados con tu código de clase."
+- **Progreso:** tarjetas con estudiantes registrados, XP total de la clase y actividades completadas (suma); el promedio de la clase por módulo (media de los estudiantes que ya tienen intentos); los cinco estudiantes con más XP; y **"Temas con más errores"**, de `GET /api/teacher/difficult-topics?limit=5`. Sin respuestas suficientes muestra un aviso.
+- Estudiantes y Progreso cargan por separado de la clase: si fallan, muestran su error sin afectar al resto del panel. Un `401` limpia la sesión y lleva al login.
 
 ### Panel del estudiante (`/student`)
-- Arriba, la tarjeta **"Nivel de tu clase"** con el grado y el nivel (`classGrade` y `classLevel` de `GET /api/users/me`) y su XP y nivel de XP (`level` numérico). Si el docente aún no declaró el grado (`classLevel` es `null`), muestra "Tu docente aún no ha elegido el nivel de la clase." y **no pide actividades**.
-- Con nivel, una sección por módulo (Vocabulary, Grammar y Reading) que carga `GET /api/activities/:moduleSlug` (`api/student.js`). El servidor ya devuelve solo las actividades del nivel de la clase; el cliente no filtra nada.
-- Las actividades con `isExample: true` llevan una etiqueta **"Ejemplo"**: son actividades de demostración, no contenido oficial.
-- Un módulo sin actividades muestra "Aún no hay actividades en este módulo.". Un `401` limpia la sesión y lleva al login.
+Arriba, la identidad del estudiante: avatar, alias, grado y nivel de la clase, nivel y XP con su barra de progreso. Los datos salen de `GET /api/users/me`: `classGrade` y `classLevel` para la clase, y `level` (numérico) como nivel de XP. Si el docente aún no declaró el grado (`classLevel` es `null`), muestra "Tu docente aún no ha elegido el nivel de la clase." y **no pide actividades ni reto**.
+
+Tres pestañas: **Mis misiones**, **Ranking** y **Mi perfil**. Los paneles quedan montados y solo se ocultan, para no repetir peticiones al cambiar de pestaña.
+
+- **Mis misiones:** con nivel, el **reto del día** y una tarjeta por módulo (Vocabulario, Gramática y Lectura) que carga `GET /api/activities/:moduleSlug` (`api/student.js`). El servidor ya devuelve solo las actividades del nivel de la clase; el cliente no filtra nada.
+  - **Reto del día:** `GET /api/daily-challenge` muestra la pregunta y sus opciones (un grupo de botones de opción, operable con teclado) y si ya se completó. El botón **Responder** (deshabilitado hasta elegir una opción y mientras se envía) llama a `POST /api/daily-challenge/complete` con `{ answer }`; el servidor califica y el cliente nunca conoce la respuesta correcta. Con `correct: false` muestra "Esa no es la respuesta. Inténtalo de nuevo." y el reto sigue disponible; con `correct: true` muestra "¡Correcto! Ganaste N XP", recarga el perfil y el ranking (XP y posición) y deja la tarjeta en "Reto de hoy completado". Un `409` (ya completado) vuelve a leer el reto y recarga el perfil y el ranking, sin error. Sin reto para hoy muestra "Hoy no hay un reto diario para tu clase."
+  - Las actividades con `isExample: true` llevan una etiqueta **"Ejemplo"**: son actividades de demostración, no contenido oficial.
+  - Un módulo sin actividades muestra "Aún no hay actividades en este módulo.". Un `401` limpia la sesión y lleva al login.
+- **Ranking:** `GET /api/ranking`, ordenado por posición. La fila del propio estudiante se marca con "Tú".
+- **Mi perfil:** el alias es el usuario con el que inicia sesión y **no se edita**. El avatar se elige entre ocho opciones (`default`, `fox`, `cat`, `panda`, `owl`, `robot`, `rocket` y `star`) y se guarda con `PATCH /api/users/me` enviando solo ese identificador corto (el servidor acepta `^[a-z0-9_-]{1,50}$`). El emoji que se dibuja es un dato del cliente. No hay formulario de soporte.
+
+### Área de gestión (`/staff`)
+Acceso separado del de estudiantes y docentes, con su propia sesión:
+
+- **Inicio de sesión (`/staff/login`):** usuario, contraseña y código TOTP, contra `POST /api/staff/auth/login`. Al entrar guarda la sesión de staff y va a `/staff`.
+- **Sesión propia:** usa las claves de `localStorage` `ep_staff_token`, `ep_staff_role` y `ep_staff_area` (`api/staffSession.js`). No toca `ep_token` ni `ep_role`, así que cerrar la sesión de gestión no cierra la de estudiante o docente. La sesión dura 20 minutos (el servidor responde `expiresIn: 1200`); al vencer, un `401` lleva a `/staff/login` con un aviso.
+- **Guarda (`StaffRoute`):** sin sesión de staff redirige a `/staff/login`. Con sesión, llama una vez a `GET /api/staff/me` y toma de ahí el usuario, el `role` y el `area`. Lo que quedó guardado al iniciar sesión no decide nada en pantalla. Un `403` significa cuenta no activa y vuelve al login con un aviso.
+- **Menú y rutas:** `StaffLayout` muestra solo las secciones de `ROLE_SECTIONS` para el rol, y `RequireSection` vuelve a `/staff` si la ruta no corresponde. El servidor es la autoridad; el cliente solo oculta.
+- **Cerrar sesión:** borra únicamente las claves de staff.
+
+Secciones por rol (`ROLE_SECTIONS` en `pages/staff/StaffLayout.jsx`):
+
+| Rol | Secciones que ve |
+|---|---|
+| `access_manager` (Gestor de usuarios y accesos) | Identidad y accesos |
+| `auditor` (Auditor) | Identidad y accesos (solo lectura) y Auditoría |
+| `analyst` (Analista de datos) | Datos y reportes |
+| `content_manager`, `content_reviewer`, `game_manager`, `moderator` y `support` | Ninguna. Ven "Aún no hay paneles para tu rol" |
+
+Páginas (endpoints reales en `api/staff.js`):
+
+- **Identidad y accesos (`/staff/access`, `IdentityAccess.jsx`):** `GET /api/staff/accounts`, `POST /api/staff/teachers` (crea docente), `POST /api/staff/teachers/:id/reset-mfa`, `POST /api/staff/teachers/:id/reset-grade` (motivo de 5 a 40 caracteres) y `GET`/`POST /api/staff/change-requests` (solicitud de suspender o activar). Solo el gestor de accesos modifica; el auditor solo consulta.
+- **Auditoría (`/staff/audit`, `Audit.jsx`):** `GET /api/staff/audit` con filtros, `GET /api/staff/audit/verify` (integridad de la cadena), `GET /api/staff/change-requests` y `POST /api/staff/change-requests/:id/decision` (aprobar o rechazar).
+- **Datos y reportes (`/staff/analytics`, `Analytics.jsx`):** `GET /api/staff/analytics/dashboard`, con métricas agregadas y anónimas.
+
+Las cinco páginas prototipo (contenido, revisión de contenido, gestión del juego, moderación y soporte) **no forman parte de la app**: no existe ruta de servidor para ellas. Su diseño sigue en la rama `PaginasWebs` para cuando haya backend.
 
 ### Rutas
-`/login`, `/register`, `/password/initial`, `/mfa/setup`, y las protegidas `/student/*` y `/teacher/*` (`ProtectedRoute`). `/` redirige a `/login`.
+`/login`, `/register`, `/password/initial`, `/mfa/setup` y las protegidas `/student/*` y `/teacher/*` (`ProtectedRoute`). Área de gestión: `/staff/login` (público) y `/staff` con `StaffRoute`, con las secciones anidadas `/staff/access`, `/staff/audit` y `/staff/analytics` (cada una con `RequireSection`). Cualquier otra ruta bajo `/staff` vuelve a `/staff`. `/` redirige a `/login`.
 
 ## Pendiente
-- Estudiante: jugar las actividades, XP en vivo, ranking y reto diario (hoy el panel solo lista las actividades del nivel).
-- Docente: lista de estudiantes, progreso y temas difíciles (hoy el panel solo muestra el código y el grado de la clase).
+- Estudiante: jugar las actividades y mostrar XP en vivo. El reto diario se responde desde el panel y solo otorga XP si la respuesta es correcta.
+- Gestión: contenido, revisión de contenido, juego, moderación y soporte, cuando el backend exista (diseño en la rama `PaginasWebs`).

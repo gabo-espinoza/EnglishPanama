@@ -294,6 +294,20 @@ async function levelOfQuestion(questionId) {
     return rows[0].level;
 }
 
+// El reto diario exige la respuesta: se pide la pregunta asignada y se envia su respuesta correcta.
+// Si el conjunto cambia entre ambas llamadas (otro archivo de prueba siembra retos en paralelo)
+// la respuesta falla sin escribir nada y se reintenta.
+async function completeAssignedChallenge(studentId) {
+    let res;
+    for (let i = 0; i < 5; i += 1) {
+        const today = await (await get('/daily-challenge', token(studentId, 'student'))).json();
+        const [rows] = await pool.query('SELECT correct_answer AS a FROM questions WHERE id = ?', [today.question.id]);
+        res = await post('/daily-challenge/complete', token(studentId, 'student'), { answer: rows[0].a });
+        if (res.status !== 200) return res;
+    }
+    return res;
+}
+
 test('el reto diario solo devuelve preguntas del nivel de la clase', async (t) => {
     if (!ready) { t.skip('sin MySQL'); return; }
     for (const [i, qid] of actA1.questionIds.entries()) await seedChallenge(qid, 900000 + i);
@@ -316,7 +330,7 @@ test('sin grado el reto diario responde como con el conjunto vacio (404)', async
     const res = await get('/daily-challenge', token(studentC, 'student'));
     assert.strictEqual(res.status, 404);
     assert.strictEqual((await res.json()).error, 'No hay retos diarios configurados.');
-    const done = await post('/daily-challenge/complete', token(studentC, 'student'), {});
+    const done = await post('/daily-challenge/complete', token(studentC, 'student'), { answer: 'am' });
     assert.strictEqual(done.status, 404);
 });
 
@@ -330,7 +344,7 @@ test('completar el reto diario usa el conjunto filtrado por nivel', async (t) =>
     await seedChallenge(extraA2.questionIds[0], 900021);
 
     for (const [student, level] of [[studentA, 'A1.1'], [studentB, 'A1.2']]) {
-        const res = await post('/daily-challenge/complete', token(student, 'student'), {});
+        const res = await completeAssignedChallenge(student);
         assert.strictEqual(res.status, 201);
         const [rows] = await pool.query(
             `SELECT a.level FROM daily_completions dc
@@ -341,7 +355,7 @@ test('completar el reto diario usa el conjunto filtrado por nivel', async (t) =>
         assert.strictEqual(rows.length, 1);
         assert.strictEqual(rows[0].level, level);
     }
-    const again = await post('/daily-challenge/complete', token(studentA, 'student'), {});
+    const again = await post('/daily-challenge/complete', token(studentA, 'student'), { answer: 'am' });
     assert.strictEqual(again.status, 409);
 });
 

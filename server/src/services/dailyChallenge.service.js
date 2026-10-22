@@ -3,9 +3,12 @@ const AppError = require('../utils/AppError');
 const { getDemoDayOffset } = require('./settings.service');
 const { progressForXp } = require('./xp.service');
 const { getClassLevelForStudent } = require('./classLevel.service');
+const { normalizeAnswer } = require('../utils/answers');
 
 // XP que otorga completar el reto diario.
 const DAILY_CHALLENGE_XP = 10;
+// Largo maximo de la respuesta que se acepta (las opciones reales son cortas).
+const MAX_ANSWER_LENGTH = 200;
 
 function addDays(date, days) {
     const copy = new Date(date.getTime());
@@ -83,13 +86,66 @@ async function getDailyChallenge(studentId) {
     };
 }
 
-async function completeDailyChallenge(studentId) {
+// Valida la forma de la respuesta: texto no vacio o numero finito, de largo acotado.
+function assertValidAnswer(answer) {
+    const isText = typeof answer === 'string';
+    const isNumber = typeof answer === 'number' && Number.isFinite(answer);
+    if (!isText && !isNumber) {
+        throw new AppError('Debes enviar tu respuesta.', 400);
+    }
+    const text = String(answer);
+    if (text.trim() === '') {
+        throw new AppError('Debes enviar tu respuesta.', 400);
+    }
+    if (text.length > MAX_ANSWER_LENGTH) {
+        throw new AppError(`La respuesta no puede superar ${MAX_ANSWER_LENGTH} caracteres.`, 400);
+    }
+}
+
+// Califica la respuesta contra la pregunta asignada hoy al estudiante. Si es correcta registra
+// la finalizacion y otorga el XP; si no, no escribe nada y no revela la respuesta correcta.
+async function completeDailyChallenge(studentId, answer) {
+    assertValidAnswer(answer);
+
     const { challenge, completedOn } = await resolveTodayChallenge(studentId);
+
+    // Un reto ya completado responde 409 ANTES de calificar: asi no se revela si una
+    // respuesta es correcta una vez terminado el reto.
+    const [doneRows] = await pool.query(
+        'SELECT id FROM daily_completions WHERE student_id = ? AND completed_on = ?',
+        [studentId, completedOn]
+    );
+    if (doneRows.length > 0) {
+        throw new AppError('Ya completaste el reto de hoy.', 409);
+    }
+
+    const [questionRows] = await pool.query(
+        'SELECT correct_answer AS correctAnswer FROM questions WHERE id = ?',
+        [challenge.questionId]
+    );
+    if (questionRows.length === 0) {
+        throw new AppError('El reto de hoy no tiene una pregunta valida.', 409);
+    }
+    if (normalizeAnswer(answer) !== normalizeAnswer(questionRows[0].correctAnswer)) {
+        return { correct: false };
+    }
+
     const xpEarned = DAILY_CHALLENGE_XP;
 
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
+
+        // Primero se bloquea la fila del estudiante: serializa los envios simultaneos del mismo
+        // estudiante. Asi el INSERT (cuya llave foranea toma un candado compartido sobre esa
+        // misma fila) nunca compite con otro envio por el candado: sin interbloqueos.
+        const [studentRows] = await connection.query(
+            'SELECT xp FROM students WHERE user_id = ? FOR UPDATE',
+            [studentId]
+        );
+        if (studentRows.length === 0) {
+            throw new AppError('El estudiante no existe.', 404);
+        }
 
         try {
             await connection.query(
@@ -103,22 +159,25 @@ async function completeDailyChallenge(studentId) {
             throw err;
         }
 
-        const [studentRows] = await connection.query(
-            'SELECT xp FROM students WHERE user_id = ? FOR UPDATE',
-            [studentId]
-        );
-        if (studentRows.length === 0) {
-            throw new AppError('El estudiante no existe.', 404);
-        }
-
         const totalXp = studentRows[0].xp + xpEarned;
         await connection.query('UPDATE students SET xp = ? WHERE user_id = ?', [totalXp, studentId]);
 
         await connection.commit();
 
-        return { completed: true, completedOn, xpEarned, totalXp, ...progressForXp(totalXp) };
+        return { correct: true, completed: true, completedOn, xpEarned, totalXp, ...progressForXp(totalXp) };
     } catch (err) {
         await connection.rollback();
+        // Capa defensiva: si MySQL aborta por interbloqueo o espera excedida, pero otro envio ya
+        // registro el reto de hoy, la respuesta es la misma que la de un reto completado.
+        if (err.code === 'ER_LOCK_DEADLOCK' || err.code === 'ER_LOCK_WAIT_TIMEOUT') {
+            const [rows] = await pool.query(
+                'SELECT id FROM daily_completions WHERE student_id = ? AND completed_on = ?',
+                [studentId, completedOn]
+            );
+            if (rows.length > 0) {
+                throw new AppError('Ya completaste el reto de hoy.', 409);
+            }
+        }
         throw err;
     } finally {
         connection.release();

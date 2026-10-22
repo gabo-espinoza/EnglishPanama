@@ -371,12 +371,33 @@ Devuelve el reto de hoy (calculado por fecha + offset de modo demo) y si ya fue 
 
 ### `POST /daily-challenge/complete` - Protegido, rol `student`
 
-Marca el reto de hoy como completado y otorga **10 XP**. Falla con `409` si ya se completo en el dia.
+Califica la respuesta del estudiante contra la pregunta del reto de hoy (la misma que devuelve
+`GET /daily-challenge`, del pool de su nivel). Solo si es **correcta** registra la finalizacion y otorga
+**10 XP**. La comparacion ignora mayusculas y espacios al inicio y al final. La respuesta correcta nunca
+se devuelve, ni acertando ni fallando.
 
-**Respuesta 201:**
+**Body:**
 ```json
-{ "completed": true, "completedOn": "2026-11-05", "xpEarned": 10, "totalXp": 150, "level": 2, "xpIntoLevel": 50, "xpForNextLevel": 100 }
+{ "answer": "am" }
 ```
+`answer` es obligatoria: texto no vacio o numero, de hasta 200 caracteres.
+
+**Respuesta 201** (respuesta correcta; se otorga el XP):
+```json
+{ "correct": true, "completed": true, "completedOn": "2026-11-05", "xpEarned": 10, "totalXp": 150, "level": 2, "xpIntoLevel": 50, "xpForNextLevel": 100 }
+```
+
+**Respuesta 200** (respuesta incorrecta; no se guarda nada ni se suma XP, el reto sigue disponible):
+```json
+{ "correct": false }
+```
+
+**Errores:**
+- `400` - `answer` ausente, vacia, de un tipo no permitido (arreglo, objeto, booleano) o de mas de 200 caracteres.
+- `404` - no hay retos para el nivel de la clase (`No hay retos diarios configurados.`).
+- `409` - ya se completo el reto de hoy (`Ya completaste el reto de hoy.`). Se revisa antes de calificar, asi que
+  un reto completado nunca revela si una respuesta es correcta. Tambien lo recibe el segundo de dos envios
+  correctos simultaneos: la restriccion UNIQUE (estudiante, dia) garantiza una sola finalizacion y un solo premio de XP.
 
 *Nota:* el pool se filtra por el nivel de la clase del estudiante: solo entran los retos cuya pregunta
 pertenece a una actividad de ese nivel. Si el docente no ha declarado el grado, o no hay retos de ese nivel,
