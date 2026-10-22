@@ -167,6 +167,12 @@ function DailyChallengeCard({ onUnauthorized, onCompleted }) {
     const options = data ? parseOptions(data.question.options) : [];
     const completed = Boolean(data && data.completed);
 
+    // Si una recarga trae otra pregunta, la selección anterior (un índice) ya no aplica.
+    const questionId = data ? data.question.id : null;
+    useEffect(() => {
+        setSelected(null);
+    }, [questionId]);
+
     function choose(index) {
         setSelected(index);
         setFeedback({ type: '', text: '' });
@@ -249,7 +255,6 @@ function DailyChallengeCard({ onUnauthorized, onCompleted }) {
                                                     className="peer sr-only"
                                                     checked={selected === index}
                                                     onChange={() => choose(index)}
-                                                    disabled={submitting}
                                                 />
                                                 <span className="block rounded-lg bg-white/10 px-3 py-2.5 text-sm text-blue-50 transition peer-checked:bg-white peer-checked:font-bold peer-checked:text-blue-600 peer-focus-visible:ring-2 peer-focus-visible:ring-white peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-blue-600">
                                                     {String(option)}
