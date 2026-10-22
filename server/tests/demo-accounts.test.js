@@ -18,6 +18,9 @@ const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const bcrypt = require('bcrypt');
 
+// Como los demas archivos de prueba: carga server/.env sin pisar variables ya exportadas.
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+
 const SERVER_DIR = path.join(__dirname, '..');
 const SCRIPT = path.join(SERVER_DIR, 'scripts', 'demo-accounts.js');
 const PAGE = path.join(SERVER_DIR, '..', 'docs', 'demo', 'codigos-totp.html');
@@ -43,10 +46,12 @@ const ALL_NAMES = [...STAFF_NAMES, ...PLATFORM_NAMES];
 const CTL = {
     teacher: 'dtest.docente', student: 'dtest.estudiante',
     support: 'dtest.soporte', auditor: 'dtest.auditor',
-    real1: 'dtest.real1', real2: 'dtest.real2'
+    real1: 'dtest.real1', real2: 'dtest.real2',
+    // Nombres que un LIKE 'demo.%' se llevaria por delante: deben sobrevivir siempre.
+    zzStaff: 'demo.zz-control', zzStudent: 'demo.zz-alumno'
 };
-const CTL_USERS = [CTL.teacher, CTL.student, CTL.real1, CTL.real2];
-const CTL_STAFF = [CTL.support, CTL.auditor];
+const CTL_USERS = [CTL.teacher, CTL.student, CTL.real1, CTL.real2, CTL.zzStudent];
+const CTL_STAFF = [CTL.support, CTL.auditor, CTL.zzStaff];
 const ACTIVITY_TITLE = 'dtest-demo-accounts-activity';
 
 // Contrasena generada en cada corrida: nunca hay una contrasena real en el repositorio.
@@ -58,6 +63,26 @@ const DB_KEYS = [
     'DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME',
     'AUDIT_DB_HOST', 'AUDIT_DB_USER', 'AUDIT_DB_PASSWORD', 'AUDIT_DB_NAME', 'STAFF_MFA_KEY'
 ];
+
+// Seguridad: la limpieza borra por lista fija, pero nunca debe correr contra una base real.
+// NODE_ENV=production la rechaza siempre; una base que no es local solo con
+// DEMO_ACCOUNTS_TEST_ALLOW_REMOTE_DB=1 (y entonces los hijos reciben --allow-production).
+const LOCAL = ['localhost', '127.0.0.1', '::1'];
+const REMOTE_OPT_IN = process.env.DEMO_ACCOUNTS_TEST_ALLOW_REMOTE_DB === '1';
+function unsafeReason() {
+    if (process.env.NODE_ENV === 'production') return 'NODE_ENV=production';
+    if (REMOTE_OPT_IN) return null;
+    const host = String(process.env.DB_HOST || '').toLowerCase();
+    if (!LOCAL.includes(host)) return 'DB_HOST no es local (' + host + ')';
+    if (/prod/i.test(String(process.env.DB_NAME || '')) || /prod/i.test(String(process.env.AUDIT_DB_NAME || ''))) {
+        return 'DB_NAME parece de produccion';
+    }
+    return null;
+}
+function assertSafeDb() {
+    const reason = unsafeReason();
+    if (reason) throw new Error('Las pruebas de demo-accounts se niegan a correr: ' + reason);
+}
 
 function baseEnv() {
     const env = {};
@@ -73,7 +98,9 @@ function dbEnv(extra = {}) {
 }
 
 function run(args, { env, input } = {}) {
-    return spawnSync(process.execPath, [SCRIPT, ...args], {
+    // Con la base remota autorizada para pruebas, las corridas con base real llevan el indicador.
+    const extra = !env && REMOTE_OPT_IN ? ['--allow-production'] : [];
+    return spawnSync(process.execPath, [SCRIPT, ...args, ...extra], {
         cwd: SERVER_DIR,
         env: env || dbEnv({ DEMO_ACCOUNTS_PASSWORD: PASSWORD }),
         input: input === undefined ? '' : input,
@@ -123,11 +150,36 @@ test('con --allow-production el guardia deja pasar (falla despues, por la base)'
     }
 });
 
-test('fuera de produccion no hace falta el indicador (falla por la base inalcanzable)', () => {
-    const out = run(['remove', '--dry-run'], { env: { ...baseEnv(), NODE_ENV: 'test', ...DEAD_DB } });
-    assert.notStrictEqual(out.status, 0);
+// Base local con credenciales malas: pasa el guardia y falla despues, por la base.
+const LOCAL_BAD_DB = { DB_HOST: '127.0.0.1', DB_USER: 'x', DB_PASSWORD: 'x', DB_NAME: 'x' };
+
+test('fuera de produccion y con base local no hace falta el indicador', () => {
+    for (const command of [['remove', '--dry-run'], ['create']]) {
+        const out = run(command, { env: { ...baseEnv(), NODE_ENV: 'test', DEMO_ACCOUNTS_PASSWORD: PASSWORD, ...LOCAL_BAD_DB } });
+        assert.notStrictEqual(out.status, 0);
+        assert.doesNotMatch(out.stderr, /--allow-production/);
+        assert.doesNotMatch(out.stderr, /NODE_ENV=production/);
+    }
+});
+
+test('una base que no es local exige el indicador aunque NODE_ENV no sea production (o no exista)', () => {
+    for (const nodeEnv of [{ NODE_ENV: 'test' }, { NODE_ENV: 'development' }, {}]) {
+        for (const command of ['create', 'remove']) {
+            const out = run([command], { env: { ...baseEnv(), ...nodeEnv, DEMO_ACCOUNTS_PASSWORD: PASSWORD, ...DEAD_DB } });
+            assert.notStrictEqual(out.status, 0);
+            assert.match(out.stderr, /--allow-production/);
+            assert.match(out.stderr, /no es local/);
+            assert.doesNotMatch(out.stderr, CONN_ERR, 'el guardia corre antes de conectar');
+        }
+    }
+    // El indicador la deja pasar (y falla despues, por la base).
+    const out = run(['remove', '--dry-run', '--allow-production'], { env: { ...baseEnv(), NODE_ENV: 'test', ...DEAD_DB } });
     assert.match(out.stderr, CONN_ERR);
     assert.doesNotMatch(out.stderr, /--allow-production/);
+    // Tambien cuenta la base de auditoria.
+    const audit = run(['remove'], { env: { ...baseEnv(), NODE_ENV: 'test', ...LOCAL_BAD_DB, AUDIT_DB_HOST: 'invalid.invalid' } });
+    assert.match(audit.stderr, /--allow-production/);
+    assert.doesNotMatch(audit.stderr, CONN_ERR);
 });
 
 test('argumentos invalidos muestran el uso y no tocan la base', () => {
@@ -143,7 +195,7 @@ test('argumentos invalidos muestran el uso y no tocan la base', () => {
 // ------------------------------------------------------- contrasena (sin base)
 
 test('contrasena corta, larga o ausente: error antes de conectar y sin crear nada', () => {
-    const noDb = { ...baseEnv(), NODE_ENV: 'test', ...DEAD_DB };
+    const noDb = { ...baseEnv(), NODE_ENV: 'test', ...LOCAL_BAD_DB };
     const short = run(['create'], { env: { ...noDb, DEMO_ACCOUNTS_PASSWORD: 'corta-11-ch' } });
     assert.notStrictEqual(short.status, 0);
     assert.match(short.stderr, /al menos 12/);
@@ -164,6 +216,17 @@ test('contrasena corta, larga o ausente: error antes de conectar y sin crear nad
     assert.notStrictEqual(none.status, 0);
     assert.match(none.stderr, /DEMO_ACCOUNTS_PASSWORD/);
     assert.doesNotMatch(none.stderr, CONN_ERR);
+
+    // Espacios al inicio o al final: se rechazan por igual por variable y por entrada estandar.
+    for (const pw of [' ' + PASSWORD, PASSWORD + ' ', PASSWORD + '\t']) {
+        const viaEnv = run(['create'], { env: { ...noDb, DEMO_ACCOUNTS_PASSWORD: pw } });
+        assert.notStrictEqual(viaEnv.status, 0);
+        assert.match(viaEnv.stderr, /espacios/);
+        const viaStdin = run(['create'], { env: noDb, input: pw + '\n' });
+        assert.notStrictEqual(viaStdin.status, 0);
+        assert.match(viaStdin.stderr, /espacios/);
+        assert.doesNotMatch(viaEnv.stderr + viaStdin.stderr, CONN_ERR);
+    }
 
     // Por entrada estandar tambien se valida el minimo.
     const stdinShort = run(['create'], { env: noDb, input: 'corta\n' });
@@ -195,6 +258,7 @@ async function q(sql, params) {
 }
 
 async function cleanup() {
+    assertSafeDb();
     const tryQ = async (sql, params) => { try { await pool.query(sql, params); } catch (err) { console.error('limpieza:', err.message); } };
     // Solo listas fijas. Las solicitudes se borran por los ids de las cuentas fijas.
     const staffIds = (await q('SELECT id FROM staff_accounts WHERE username IN (?)', [[...STAFF_NAMES, ...CTL_STAFF]])).map((r) => r.id);
@@ -211,6 +275,7 @@ async function cleanup() {
 test.before(async () => {
     if (!hasDb) return;
     try {
+        assertSafeDb();
         pool = require('../src/config/db');
         await pool.query('SELECT 1');
         audit = require('../src/services/audit.service');
@@ -246,7 +311,10 @@ test.before(async () => {
             [t.insertId, 'Docente de control', 'Z' + crypto.randomBytes(3).toString('hex').toUpperCase().slice(0, 5)]);
         const [s] = await pool.query("INSERT INTO users (role, username, password_hash) VALUES ('student', ?, ?)", [CTL.student, hash]);
         await pool.query('INSERT INTO students (user_id, teacher_id) VALUES (?, ?)', [s.insertId, t.insertId]);
-        for (const [name, role] of [[CTL.support, 'support'], [CTL.auditor, 'auditor']]) {
+        // Alumno de control con otro docente: nunca debe bloquear ni sufrir un remove.
+        const [z] = await pool.query("INSERT INTO users (role, username, password_hash) VALUES ('student', ?, ?)", [CTL.zzStudent, hash]);
+        await pool.query('INSERT INTO students (user_id, teacher_id) VALUES (?, ?)', [z.insertId, t.insertId]);
+        for (const [name, role] of [[CTL.support, 'support'], [CTL.auditor, 'auditor'], [CTL.zzStaff, 'support']]) {
             await pool.query('INSERT INTO staff_accounts (username, password_hash, role, mfa_secret_enc) VALUES (?, ?, ?, ?)',
                 [name, hash, role, mfaCrypto.encrypt(totp.generateSecret())]);
         }
@@ -308,7 +376,7 @@ async function controlState() {
     const staff = await q('SELECT username, role, HEX(mfa_secret_enc) AS mfa FROM staff_accounts WHERE username IN (?) ORDER BY username', [CTL_STAFF]);
     const users = await q(
         'SELECT u.username, u.role, t.class_code, s.teacher_id FROM users u LEFT JOIN teachers t ON t.user_id = u.id LEFT JOIN students s ON s.user_id = u.id WHERE u.username IN (?) ORDER BY u.username',
-        [[CTL.teacher, CTL.student]]
+        [[CTL.teacher, CTL.student, CTL.zzStudent]]
     );
     return JSON.stringify({ staff, users });
 }
@@ -561,8 +629,14 @@ test('create --reissue da secretos nuevos, revoca sesiones y no toca contrasenas
     const oldToken = (await oldLogin.json()).token;
     assert.strictEqual((await call('GET', '/staff/me', { token: oldToken })).status, 200);
 
+    await pool.query("UPDATE staff_accounts SET failed_attempts = 2 WHERE username = 'demo.juego'");
+    await pool.query("UPDATE users SET failed_attempts = 1 WHERE username = ?", [TEACHER]);
     const out = run(['create', '--reissue']);
     assert.strictEqual(out.status, 0, out.stderr);
+    assert.strictEqual((await q("SELECT failed_attempts AS n FROM staff_accounts WHERE username = 'demo.juego'"))[0].n, 2, 'no limpia intentos');
+    assert.strictEqual((await q('SELECT failed_attempts AS n FROM users WHERE username = ?', [TEACHER]))[0].n, 1, 'no limpia intentos');
+    await pool.query("UPDATE staff_accounts SET failed_attempts = 0 WHERE username = 'demo.juego'");
+    await pool.query('UPDATE users SET failed_attempts = 0 WHERE username = ?', [TEACHER]);
     const block = parseBlock(out.stdout);
     assert.ok(block);
     assert.deepStrictEqual(Object.keys(block.secrets).sort(), [...MFA_NAMES].sort());
@@ -644,6 +718,10 @@ test('remove --dry-run muestra lo que borraria y no cambia nada', async (t) => {
         attempts: 1, students: 2, teachers: 1, users: 3
     });
     assert.match(out.stdout, /2 involucran tambien/);
+    assert.match(out.stdout, /ABORTARIA/);
+    assert.match(out.stdout, /--include-foreign-requests/);
+    assert.doesNotMatch(out.stdout, /--include-linked-students/);
+    for (const id of [ids.r3, ids.r4]) assert.match(out.stdout, new RegExp('solicitud #' + id + ' '));
     assert.strictEqual(JSON.stringify(await snapshot()), before);
     assert.strictEqual(await controlState(), ctl);
     assert.strictEqual((await q('SELECT COUNT(*) AS n FROM staff_change_requests WHERE id IN (?)', [requestIds]))[0].n, reqBefore);
@@ -654,6 +732,7 @@ test('seguridad de cascada: un estudiante real con el codigo del docente aborta 
     if (!ready || !state.snap) { t.skip('sin MySQL o sin cuentas'); return; }
     const realId = await registerReal(CTL.real1);
     const before = JSON.stringify(await snapshot());
+    const ctl0 = await controlState();
 
     const out = run(['remove']);
     assert.notStrictEqual(out.status, 0);
@@ -665,6 +744,7 @@ test('seguridad de cascada: un estudiante real con el codigo del docente aborta 
     assert.strictEqual((await q('SELECT COUNT(*) AS n FROM users WHERE id = ?', [realId]))[0].n, 1);
     assert.strictEqual((await q('SELECT COUNT(*) AS n FROM attempts WHERE student_id = ?', [realId]))[0].n, 1);
     assert.strictEqual((await q('SELECT COUNT(*) AS n FROM staff_change_requests WHERE id IN (?)', [requestIds]))[0].n, requestIds.length);
+    assert.strictEqual(await controlState(), ctl0);
 
     // El simulacro avisa del aborto pero termina bien y tampoco cambia nada.
     const dry = run(['remove', '--dry-run']);
@@ -677,10 +757,29 @@ test('seguridad de cascada: un estudiante real con el codigo del docente aborta 
     await pool.query('DELETE FROM users WHERE id = ?', [realId]);
 });
 
+test('solicitudes de cambio ajenas: remove aborta sin borrar nada, y con --include-foreign-requests las borra', async (t) => {
+    if (!ready || !state.snap) { t.skip('sin MySQL o sin cuentas'); return; }
+    const before = JSON.stringify(await snapshot());
+    const ctl = await controlState();
+    const out = run(['remove']);
+    assert.notStrictEqual(out.status, 0);
+    assert.match(out.stdout, /solicitud #\d+/);
+    assert.match(out.stderr, /--include-foreign-requests/);
+    assert.match(out.stderr, new RegExp('ids ' + requestIds[2] + ', ' + requestIds[3]));
+    assert.doesNotMatch(out.stderr, /--include-linked-students/);
+    assert.strictEqual(JSON.stringify(await snapshot()), before, 'no se borro ninguna cuenta');
+    assert.strictEqual((await q('SELECT COUNT(*) AS n FROM staff_change_requests WHERE id IN (?)', [requestIds]))[0].n, requestIds.length);
+    assert.strictEqual(await controlState(), ctl);
+    // Pasar solo la otra opcion no sirve.
+    const wrong = run(['remove', '--include-linked-students']);
+    assert.notStrictEqual(wrong.status, 0);
+    assert.strictEqual(JSON.stringify(await snapshot()), before);
+});
+
 test('remove borra exactamente las cuentas demo (conteos por tabla) y deja todo lo demas', async (t) => {
     if (!ready || !state.snap) { t.skip('sin MySQL o sin cuentas'); return; }
     const ctl = await controlState();
-    const out = run(['remove']);
+    const out = run(['remove', '--include-foreign-requests']);
     assert.strictEqual(out.status, 0, out.stderr);
     assert.deepStrictEqual(counts(out.stdout), {
         staff_change_requests: 4, staff_accounts: 8, daily_completions: 0, attempt_answers: 1,
@@ -692,6 +791,9 @@ test('remove borra exactamente las cuentas demo (conteos por tabla) y deja todo 
     const snap = await snapshot();
     assert.strictEqual(snap.staff.length + snap.users.length, 0, 'ninguna cuenta demo queda');
     assert.strictEqual(await controlState(), ctl, 'las filas de control sobreviven intactas');
+    // Los nombres "demo.zz-*" (que un LIKE se llevaria) siguen ahi.
+    assert.strictEqual((await q('SELECT COUNT(*) AS n FROM staff_accounts WHERE username = ?', [CTL.zzStaff]))[0].n, 1);
+    assert.strictEqual((await q('SELECT COUNT(*) AS n FROM users WHERE username = ?', [CTL.zzStudent]))[0].n, 1);
     // Solicitudes: solo sobrevive la de las cuentas de control (h: sin errores de FK).
     const left = await q('SELECT id FROM staff_change_requests WHERE id IN (?)', [requestIds]);
     assert.deepStrictEqual(left.map((r) => r.id), [requestIds[requestIds.length - 1]]);
@@ -705,11 +807,49 @@ test('remove borra exactamente las cuentas demo (conteos por tabla) y deja todo 
     assert.match(again.stdout, /No hay cuentas demo/);
 });
 
-test('remove --include-linked-students borra tambien a los estudiantes enlazados', async (t) => {
+test('un estudiante real con nombre de cuenta de gestion demo (demo.auditor) tambien cuenta como enlazado', async (t) => {
     if (!ready || !state.snap) { t.skip('sin MySQL o sin cuentas'); return; }
     const created = run(['create']);
     assert.strictEqual(created.status, 0, created.stderr);
     assert.strictEqual(Object.keys(parseBlock(created.stdout).secrets).length, 9);
+    const teacherId = (await q('SELECT id FROM users WHERE username = ?', [TEACHER]))[0].id;
+    const hash = await bcrypt.hash(PASSWORD, 4);
+    const ids = [];
+    for (const name of ['demo.auditor', 'demo.soporte']) {
+        const [r] = await pool.query("INSERT INTO users (role, username, password_hash) VALUES ('student', ?, ?)", [name, hash]);
+        await pool.query('INSERT INTO students (user_id, teacher_id, xp) VALUES (?, ?, 7)', [r.insertId, teacherId]);
+        await pool.query('INSERT INTO attempts (student_id, activity_id, score, xp_earned) VALUES (?, ?, 1, 7)', [r.insertId, activityId]);
+        ids.push(r.insertId);
+    }
+    const before = JSON.stringify(await snapshot());
+    const ctl = await controlState();
+    for (const args of [['remove'], ['remove', '--include-foreign-requests']]) {
+        const out = run(args);
+        assert.notStrictEqual(out.status, 0, args.join(' '));
+        assert.match(out.stdout, /demo\.auditor \(id/);
+        assert.match(out.stdout, /demo\.soporte \(id/);
+        assert.match(out.stdout, /2 estudiantes, 2 intentos, 14 XP/);
+        assert.match(out.stderr, /--include-linked-students/);
+    }
+    const dry = run(['remove', '--dry-run']);
+    assert.strictEqual(dry.status, 0, dry.stderr);
+    assert.match(dry.stdout, /ABORTARIA/);
+    assert.strictEqual(JSON.stringify(await snapshot()), before, 'nada se borro');
+    assert.strictEqual(await controlState(), ctl);
+    assert.strictEqual((await q('SELECT COUNT(*) AS n FROM users WHERE id IN (?)', [ids]))[0].n, 2);
+    assert.strictEqual((await q('SELECT COUNT(*) AS n FROM attempts WHERE student_id IN (?)', [ids]))[0].n, 2);
+    // Se quitan para el siguiente caso (limpieza propia).
+    await pool.query('DELETE FROM users WHERE id IN (?)', [ids]);
+});
+
+test('remove --include-linked-students borra tambien a los estudiantes enlazados', async (t) => {
+    if (!ready || !state.snap) { t.skip('sin MySQL o sin cuentas'); return; }
+    // Las cuentas ya existen del caso anterior. Una solicitud solo entre cuentas demo no bloquea.
+    const idOf = async (name) => (await q('SELECT id FROM staff_accounts WHERE username = ?', [name]))[0].id;
+    await pool.query(
+        "INSERT INTO staff_change_requests (target_id, action, requested_by, decided_by, status, decided_at) VALUES (?, 'suspend', ?, ?, 'approved', NOW())",
+        [await idOf('demo.soporte'), await idOf('demo.accesos'), await idOf('demo.auditor')]
+    );
     const r1 = await registerReal(CTL.real1);
     const r2 = await registerReal(CTL.real2);
     const ctl = await controlState();
@@ -722,7 +862,7 @@ test('remove --include-linked-students borra tambien a los estudiantes enlazados
     const out = run(['remove', '--include-linked-students']);
     assert.strictEqual(out.status, 0, out.stderr);
     assert.deepStrictEqual(counts(out.stdout), {
-        staff_change_requests: 0, staff_accounts: 8, daily_completions: 0, attempt_answers: 2,
+        staff_change_requests: 1, staff_accounts: 8, daily_completions: 0, attempt_answers: 2,
         attempts: 2, students: 4, teachers: 1, users: 5
     });
     assert.strictEqual((await q('SELECT COUNT(*) AS n FROM users WHERE id IN (?)', [[r1, r2]]))[0].n, 0);

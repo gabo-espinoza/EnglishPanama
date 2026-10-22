@@ -24,15 +24,20 @@
 //                     ON DELETE CASCADE: borrar al docente demo borraria a CUALQUIER estudiante
 //                     registrado con su codigo de clase. Por eso, si hay estudiantes enlazados
 //                     que no son de la lista, aborta sin borrar nada salvo que se pase
-//                     --include-linked-students. --dry-run solo muestra lo que se borraria.
+//                     --include-linked-students. Igual con las solicitudes de cambio que
+//                     involucran a cuentas de gestion que NO son demo (la FK obliga a borrarlas):
+//                     aborta salvo --include-foreign-requests. --dry-run solo muestra lo que se
+//                     borraria y que opciones haria falta pasar.
 //
-// Con NODE_ENV=production el script solo corre si la linea de comandos incluye
+// Con NODE_ENV=production, o con una base de datos que no sea local (DB_HOST distinto de
+// localhost, 127.0.0.1 o ::1), el script solo corre si la linea de comandos incluye
 // --allow-production (ninguna variable de entorno lo habilita). La auditoria (audit_log) es
 // de solo anadir por diseno: las filas de auditoria no se borran.
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const readline = require('readline');
+const { Writable } = require('stream');
 const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const pool = require('../src/config/db');
@@ -73,12 +78,12 @@ const USAGE = [
     'Uso:',
     '  node scripts/demo-accounts.js create [--allow-production]',
     '  node scripts/demo-accounts.js create --reissue [--allow-production]',
-    '  node scripts/demo-accounts.js remove [--dry-run] [--include-linked-students] [--allow-production]'
+    '  node scripts/demo-accounts.js remove [--dry-run] [--include-linked-students] [--include-foreign-requests] [--allow-production]'
 ].join('\n');
 
 const ALLOWED_FLAGS = {
     create: ['--allow-production', '--reissue'],
-    remove: ['--allow-production', '--dry-run', '--include-linked-students']
+    remove: ['--allow-production', '--dry-run', '--include-linked-students', '--include-foreign-requests']
 };
 
 class UserError extends Error {}
@@ -97,21 +102,51 @@ function parseArgs(argv) {
 }
 
 // El permiso para correr en produccion viaja SOLO en la linea de comandos.
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+
+function isLocalHost(host) {
+    // Sin host configurado, mysql2 usa localhost.
+    if (host === undefined || host === null || String(host).trim() === '') return true;
+    return LOCAL_HOSTS.has(String(host).trim().toLowerCase());
+}
+
+// Tambien se exige el indicador si la base no es local: asi el guardia no depende de que
+// NODE_ENV este definido en el .env del servidor.
 function assertProductionGuard() {
-    if (process.env.NODE_ENV === 'production' && !process.argv.includes('--allow-production')) {
+    const production = process.env.NODE_ENV === 'production';
+    const remoteDb = !isLocalHost(process.env.DB_HOST) || !isLocalHost(process.env.AUDIT_DB_HOST);
+    if ((production || remoteDb) && !process.argv.includes('--allow-production')) {
         throw new UserError(
-            'Con NODE_ENV=production este script solo corre si el comando incluye --allow-production ' +
-            '(crea o retira las cuentas de demostracion).'
+            'Con NODE_ENV=production (o con una base de datos que no es local) este script solo corre si el comando ' +
+            'incluye --allow-production (crea o retira las cuentas de demostracion).'
         );
     }
 }
 
+// Pide la contrasena por entrada estandar. En una terminal NO se muestra lo que se escribe;
+// con entrada redirigida (pipe) se lee la primera linea tal cual, sin recortar espacios.
 function ask(query) {
     return new Promise((resolve) => {
         process.stdout.write(query);
-        const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: false });
         let answered = false;
-        rl.once('line', (line) => { answered = true; rl.close(); resolve(line.trim()); });
+        let rl;
+        if (process.stdin.isTTY) {
+            let muted = false;
+            const sink = new Writable({
+                write(chunk, enc, cb) { if (!muted) process.stdout.write(chunk, enc); cb(); }
+            });
+            rl = readline.createInterface({ input: process.stdin, output: sink, terminal: true });
+            muted = true;
+            rl.once('SIGINT', () => { rl.close(); process.stdout.write('\n'); process.exit(130); });
+        } else {
+            rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: false });
+        }
+        rl.once('line', (line) => {
+            answered = true;
+            rl.close();
+            if (process.stdin.isTTY) process.stdout.write('\n');
+            resolve(line);
+        });
         // Sin entrada interactiva (EOF): se resuelve vacio para fallar con un mensaje claro.
         rl.once('close', () => { if (!answered) resolve(''); });
     });
@@ -126,6 +161,10 @@ async function readPassword() {
         if (password === '') {
             throw new UserError('No se recibio la contrasena. Define ' + PASSWORD_ENV + ' o escribela por entrada estandar.');
         }
+    }
+    // No se recorta nada, ni por variable ni por entrada estandar: se rechaza.
+    if (password !== password.trim()) {
+        throw new UserError('La contrasena no debe empezar ni terminar con espacios o saltos de linea.');
     }
     if (password.length < MIN_PASSWORD) {
         throw new UserError('La contrasena debe tener al menos ' + MIN_PASSWORD + ' caracteres.');
@@ -230,11 +269,17 @@ async function createAccounts() {
         if (existingTeacher) {
             teacherId = existingTeacher.id;
             const [[row]] = await conn.query('SELECT class_code FROM teachers WHERE user_id = ?', [teacherId]);
-            classCode = row ? row.class_code : null;
+            if (!row) {
+                throw new UserError(
+                    DEMO_TEACHER.username + ' existe en users pero no tiene fila en teachers; no se cambio nada. ' +
+                    'Revisalo a mano (o retira las cuentas demo con "remove") antes de volver a correr create.'
+                );
+            }
+            classCode = row.class_code;
             const warn = existingTeacher.mfa_secret_enc ? '' : ' [SIN MFA activo: usa --reissue]';
             results.push({
                 username: DEMO_TEACHER.username, kind: 'docente',
-                detail: 'codigo de clase ' + (classCode || '(sin fila en teachers)'), status: 'ya existe, se omite' + warn
+                detail: 'codigo de clase ' + classCode, status: 'ya existe, se omite' + warn
             });
         } else {
             platformHash = await bcrypt.hash(password, PLATFORM_ROUNDS);
@@ -255,7 +300,13 @@ async function createAccounts() {
                     );
                     break;
                 } catch (err) {
-                    if (err.code === 'ER_DUP_ENTRY' && attempt < CLASS_CODE_TRIES) continue;
+                    if (err.code === 'ER_DUP_ENTRY') {
+                        if (attempt < CLASS_CODE_TRIES) continue;
+                        throw new UserError(
+                            'No se pudo generar un codigo de clase unico tras ' + CLASS_CODE_TRIES +
+                            ' intentos. No se creo nada; vuelve a correr el comando.'
+                        );
+                    }
                     throw err;
                 }
             }
@@ -307,7 +358,7 @@ async function createAccounts() {
         console.log('  node scripts/demo-accounts.js remove');
     } catch (err) {
         if (inTransaction) { try { await conn.rollback(); } catch { /* conexion perdida */ } }
-        if (err.code === 'ER_DUP_ENTRY') {
+        if (err.code === 'ER_DUP_ENTRY' && !/class_code/.test(err.message)) {
             throw new UserError('Una cuenta demo aparecio mientras se creaba (' + err.message + '). No se creo nada; vuelve a correr el comando.');
         }
         throw err;
@@ -334,7 +385,7 @@ async function reissueAccounts() {
             const secret = totp.generateSecret();
             await conn.query(
                 `UPDATE staff_accounts
-                 SET mfa_secret_enc = ?, token_version = token_version + 1, failed_attempts = 0, locked_until = NULL
+                 SET mfa_secret_enc = ?, token_version = token_version + 1
                  WHERE id = ?`,
                 [mfaCrypto.encrypt(secret), row.id]
             );
@@ -348,7 +399,7 @@ async function reissueAccounts() {
             await conn.query(
                 `UPDATE users
                  SET mfa_secret_enc = ?, mfa_pending_enc = NULL, mfa_pending_expires_at = NULL,
-                     token_version = token_version + 1, failed_attempts = 0, locked_until = NULL
+                     token_version = token_version + 1
                  WHERE id = ? AND role = 'teacher'`,
                 [mfaCrypto.encrypt(secret), teacher.id]
             );
@@ -400,11 +451,12 @@ async function planRemoval(conn, { lock }) {
              FROM students s JOIN users u ON u.id = s.user_id
              WHERE s.teacher_id = ? AND u.username NOT IN (?)
              ORDER BY u.username`,
-            [teacher.id, ALL_NAMES]
+            [teacher.id, DEMO_STUDENTS]
         );
         linkedExtras = rows.map((r) => ({ id: r.id, username: r.username, xp: Number(r.xp), attempts: Number(r.attempts) }));
     }
-    return { existing, staffIds, teacher, demoStudentIds, linkedExtras };
+    const requests = await listRequests(conn, staffIds);
+    return { existing, staffIds, teacher, demoStudentIds, linkedExtras, requests };
 }
 
 async function countBy(conn, sql, ids) {
@@ -413,19 +465,23 @@ async function countBy(conn, sql, ids) {
     return Number(row.n);
 }
 
-async function countRequests(conn, staffIds) {
-    if (staffIds.length === 0) return { total: 0, foreign: 0 };
-    const [[t]] = await conn.query(
-        `SELECT COUNT(*) AS n FROM staff_change_requests
-         WHERE target_id IN (?) OR requested_by IN (?) OR decided_by IN (?)`,
+// Solicitudes de cambio que referencian a las cuentas de gestion demo. La FK obliga a borrarlas
+// antes que las cuentas. "Ajenas" son las que ademas involucran a cuentas que NO son demo.
+async function listRequests(conn, staffIds) {
+    if (staffIds.length === 0) return { total: 0, foreign: [] };
+    const [rows] = await conn.query(
+        `SELECT r.id, r.status, t.username AS target, rq.username AS requester, d.username AS decider
+         FROM staff_change_requests r
+         JOIN staff_accounts t ON t.id = r.target_id
+         JOIN staff_accounts rq ON rq.id = r.requested_by
+         LEFT JOIN staff_accounts d ON d.id = r.decided_by
+         WHERE r.target_id IN (?) OR r.requested_by IN (?) OR r.decided_by IN (?)
+         ORDER BY r.id`,
         [staffIds, staffIds, staffIds]
     );
-    const [[w]] = await conn.query(
-        `SELECT COUNT(*) AS n FROM staff_change_requests
-         WHERE target_id IN (?) AND requested_by IN (?) AND (decided_by IS NULL OR decided_by IN (?))`,
-        [staffIds, staffIds, staffIds]
-    );
-    return { total: Number(t.n), foreign: Number(t.n) - Number(w.n) };
+    const demo = new Set(STAFF_NAMES);
+    const foreign = rows.filter((r) => !(demo.has(r.target) && demo.has(r.requester) && (r.decider === null || demo.has(r.decider))));
+    return { total: rows.length, foreign };
 }
 
 function printFound(plan) {
@@ -446,6 +502,14 @@ function printExtras(plan) {
     console.log(`  Total: ${plan.linkedExtras.length} estudiantes, ${attempts} intentos, ${xp} XP.`);
 }
 
+function printForeign(plan) {
+    console.log('\nSolicitudes de cambio que involucran tambien a cuentas de gestion que NO son demo (la FK obliga a borrarlas):');
+    for (const r of plan.requests.foreign) {
+        console.log(`  solicitud #${r.id} (${r.status}): objetivo ${r.target}, solicita ${r.requester}, decide ${r.decider || '-'}`);
+    }
+    console.log(`  Total: ${plan.requests.foreign.length} de ${plan.requests.total}.`);
+}
+
 function printSummary(title, counts, requests) {
     console.log('\n' + title);
     console.log(`  staff_change_requests: ${counts.staff_change_requests}`);
@@ -456,14 +520,15 @@ function printSummary(title, counts, requests) {
     console.log(`  students:              ${counts.students}`);
     console.log(`  teachers:              ${counts.teachers}`);
     console.log(`  users:                 ${counts.users}`);
-    if (requests && requests.foreign > 0) {
-        console.log(`  (de las solicitudes de cambio, ${requests.foreign} involucran tambien a cuentas de gestion que no son demo)`);
+    if (requests && requests.foreign.length > 0) {
+        console.log(`  (de las solicitudes de cambio, ${requests.foreign.length} involucran tambien a cuentas de gestion que no son demo)`);
     }
 }
 
 async function removeAccounts(flags) {
     const dryRun = flags.has('--dry-run');
     const includeLinked = flags.has('--include-linked-students');
+    const includeForeign = flags.has('--include-foreign-requests');
     const conn = await pool.getConnection();
     let inTransaction = false;
     try {
@@ -473,13 +538,20 @@ async function removeAccounts(flags) {
         printFound(plan);
 
         const accountCount = plan.staffIds.length + plan.demoStudentIds.length + (plan.teacher ? 1 : 0);
-        const blocked = plan.linkedExtras.length > 0 && !includeLinked;
+        const blockedStudents = plan.linkedExtras.length > 0 && !includeLinked;
+        const blockedRequests = plan.requests.foreign.length > 0 && !includeForeign;
+        const blocked = blockedStudents || blockedRequests;
+        const neededFlags = [
+            ...(blockedStudents ? ['--include-linked-students'] : []),
+            ...(blockedRequests ? ['--include-foreign-requests'] : [])
+        ];
         const studentIds = [...plan.demoStudentIds, ...(includeLinked ? plan.linkedExtras.map((s) => s.id) : [])];
 
         if (plan.linkedExtras.length > 0) printExtras(plan);
+        if (plan.requests.foreign.length > 0) printForeign(plan);
 
         if (dryRun) {
-            const requests = await countRequests(conn, plan.staffIds);
+            const requests = plan.requests;
             const counts = {
                 staff_change_requests: requests.total,
                 staff_accounts: plan.staffIds.length,
@@ -494,9 +566,9 @@ async function removeAccounts(flags) {
             await conn.rollback();
             inTransaction = false;
             if (blocked) {
-                console.log('\nATENCION: un "remove" real ABORTARIA sin borrar nada por esos estudiantes. Con --include-linked-students los borraria tambien.');
+                console.log('\nATENCION: un "remove" real ABORTARIA sin borrar nada. Para continuar haria falta pasar: ' + neededFlags.join(' ') + '.');
             }
-            printSummary('SIMULACION (--dry-run): se borraria' + (blocked ? ' (si se pasara --include-linked-students)' : '') + ':', counts, requests);
+            printSummary('SIMULACION (--dry-run): se borraria' + (blocked ? ' (si se pasaran ' + neededFlags.join(' y ') + ')' : '') + ':', counts, requests);
             console.log('No se cambio nada.');
             return;
         }
@@ -511,13 +583,17 @@ async function removeAccounts(flags) {
         if (blocked) {
             await conn.rollback();
             inTransaction = false;
-            throw new UserError(
-                'Se aborta sin borrar nada: hay ' + plan.linkedExtras.length + ' estudiante(s) enlazado(s) al docente demo que no son de la lista ' +
-                '(ver arriba). Borrar al docente los eliminaria junto con su avance. Si de verdad quieres borrarlos, repite con --include-linked-students.'
-            );
+            const reasons = [];
+            if (blockedStudents) {
+                reasons.push(plan.linkedExtras.length + ' estudiante(s) enlazado(s) al docente demo que no son de la lista (borrar al docente los eliminaria junto con su avance); repite con --include-linked-students si de verdad quieres borrarlos');
+            }
+            if (blockedRequests) {
+                reasons.push(plan.requests.foreign.length + ' solicitud(es) de cambio (ids ' + plan.requests.foreign.map((r) => r.id).join(', ') + ') que involucran a cuentas de gestion que no son demo; repite con --include-foreign-requests si de verdad quieres borrarlas');
+            }
+            throw new UserError('Se aborta sin borrar nada (ver arriba): ' + reasons.join(' | ') + '.');
         }
 
-        const requests = await countRequests(conn, plan.staffIds);
+        const requests = plan.requests;
         const counts = {};
         const del = async (key, sql, ids, params = [ids]) => {
             if (ids.length === 0) { counts[key] = 0; return; }
