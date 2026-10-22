@@ -16,3 +16,9 @@ export function declareGrade(token, grade) {
 export function getStudents(token) {
     return apiRequest('/teacher/students', { token });
 }
+
+// Temas con más errores en la clase: [{ topic, attempts, errors, errorRate }] (errorRate en %, 0-100).
+// Sin grado declarado el servidor responde una lista vacía.
+export function getDifficultTopics(token, limit = 5) {
+    return apiRequest(`/teacher/difficult-topics?limit=${encodeURIComponent(limit)}`, { token });
+}
