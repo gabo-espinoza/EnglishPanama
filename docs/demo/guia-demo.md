@@ -19,15 +19,17 @@ cd /var/www/englishpanama/api
 ### Crear las cuentas
 
 ```bash
-# Contraseña por variable de entorno (queda en el historial del shell: bórralo después)...
-DEMO_ACCOUNTS_PASSWORD='<contraseña compartida>' node scripts/demo-accounts.js create --allow-production
-
-# ...o sin variable: el script la pide por entrada estándar.
+# Recomendado: sin variable. El script pide la contraseña por entrada estándar y NO la muestra al escribirla.
 node scripts/demo-accounts.js create --allow-production
+
+# Alternativa: variable de entorno, escrita sin eco y NUNCA en la línea de comandos.
+read -rs DEMO_ACCOUNTS_PASSWORD; export DEMO_ACCOUNTS_PASSWORD
+node scripts/demo-accounts.js create --allow-production
+unset DEMO_ACCOUNTS_PASSWORD
 ```
 
-- **Contraseña**: de 12 a 72 caracteres. Sale de la variable `DEMO_ACCOUNTS_PASSWORD` o, si no existe, se pide por entrada estándar. Nunca se imprime ni se registra.
-- **Protección de producción**: con `NODE_ENV=production` (el caso de la VM) tanto `create` como `remove` **solo corren si el comando incluye `--allow-production`**. Una variable de entorno nunca lo habilita. Fuera de producción no hace falta el indicador. El error de la protección sale antes de conectar con la base.
+- **Contraseña**: de 12 a 72 caracteres, **sin espacios al inicio ni al final** (se rechaza; no se recorta nada). Se pide por entrada estándar (sin eco en una terminal) o sale de la variable `DEMO_ACCOUNTS_PASSWORD`. Nunca se imprime ni se registra. Si escribes la variable en línea (`DEMO_ACCOUNTS_PASSWORD='...' node ...`), queda en el historial del shell y en el entorno del proceso mientras corre: evítalo.
+- **Protección de producción**: con `NODE_ENV=production` (el caso de la VM) tanto `create` como `remove` **solo corren si el comando incluye `--allow-production`**. Una variable de entorno nunca lo habilita. El indicador también se exige si la base de datos configurada **no es local** (`DB_HOST` distinto de `localhost`, `127.0.0.1` o `::1`), aunque `NODE_ENV` no esté definido; en la VM de la app, con la base en otra VM, siempre hará falta. Aun así, **verifica que `NODE_ENV` esté definido en la `.env` de la VM** (el guardia también se activa si la base no es local). Con una base local y fuera de producción no hace falta el indicador. El error de la protección sale antes de conectar con la base.
 - **Cuentas** (lista fija, todas empiezan con `demo.`):
 
 | Cuenta | Rol | MFA |
@@ -44,7 +46,7 @@ node scripts/demo-accounts.js create --allow-production
 | `demo.estudiante1`, `demo.estudiante2` | student, enlazados al docente demo | No (es opcional) |
 
 - **Docente**: queda con el MFA activo, **sin** cambio obligatorio de contraseña, con un código de clase generado y con el **grado sin declarar** para que la demostración lo declare. El resumen imprime el código de clase.
-- **Idempotente**: si una cuenta ya existe, se omite con una línea clara. Nunca se cambia la contraseña de una cuenta existente ni se vuelve a mostrar su secreto. Si un nombre `demo.*` de la lista existe con un rol distinto al esperado, el script se detiene con un error y no cambia nada.
+- **Idempotente**: si una cuenta ya existe, se omite con una línea clara. Nunca se cambia la contraseña de una cuenta existente ni se vuelve a mostrar su secreto. **Un `demo.docente` que ya exista se omite sin comprobar que sea «nuestro»**: el script no puede saberlo, y lo único que protege a los estudiantes enlazados a él es la comprobación de `remove` descrita abajo. Si `demo.docente` existe sin fila en `teachers`, `create` se detiene con un error claro y no cambia nada. Si un nombre `demo.*` de la lista existe con un rol distinto al esperado, el script se detiene con un error y no cambia nada.
 
 ### El bloque de secretos y dónde pegarlo
 
@@ -81,6 +83,8 @@ node scripts/demo-accounts.js remove --dry-run --allow-production
 node scripts/demo-accounts.js remove --allow-production
 ```
 
+El simulacro muestra los conteos por tabla y, si un `remove` real abortaría, qué opción haría falta (`--include-linked-students`, `--include-foreign-requests` o ambas).
+
 - Borra **exactamente** la lista fija de 11 cuentas; nunca usa patrones como `LIKE 'demo.%'`.
 - **Seguridad de la cascada**: las tablas `users`, `teachers` y `students` se enlazan con `ON DELETE CASCADE`, así que borrar al docente demo borraría **a cualquier estudiante registrado con su código de clase**. Antes de borrar, el script cuenta los estudiantes enlazados al docente que **no** son de la lista (con sus intentos y XP). Si hay alguno, **aborta sin borrar nada** y muestra quiénes y qué se perdería. Solo si de verdad quieres borrarlos, repite con `--include-linked-students`:
 
@@ -88,7 +92,7 @@ node scripts/demo-accounts.js remove --allow-production
   node scripts/demo-accounts.js remove --include-linked-students --allow-production
   ```
 
-- Las solicitudes de `staff_change_requests` que involucran a las cuentas de gestión demo (como objetivo, solicitante o quien decide) se borran **primero**, dentro de la misma transacción, y se informa cuántas fueron (y cuántas involucraban también a cuentas que no son de la demostración).
+- Las solicitudes de `staff_change_requests` que involucran a las cuentas de gestión demo (como objetivo, solicitante o quien decide) se borran **primero**, dentro de la misma transacción, y se informa cuántas fueron. Si alguna involucra también a una cuenta de gestión que **no** es de la demostración (la clave foránea obliga a borrarla), el script **aborta sin borrar nada**, muestra los ids y quién participa, y solo continúa con `--include-foreign-requests`.
 - Al final imprime un resumen con las filas borradas por tabla. Las filas de `audit_log` **no se borran**: la auditoría es de solo añadir por diseño. Cada `create`, `--reissue` y `remove` que cambia algo deja una entrada de auditoría (`demo.accounts.create`, `demo.accounts.reissue`, `demo.accounts.remove`).
 - **Retira las cuentas el mismo día de la demostración.**
 
@@ -104,7 +108,7 @@ Lo que **no** cambia:
 
 - El MFA sigue activo y es obligatorio para docentes y cuentas de gestión. No hay excepciones en el código ni cuentas sin MFA.
 - Los parámetros son los del servidor (`server/src/utils/totp.js`): SHA-1, 6 dígitos, 30 segundos.
-- Esta guía y la página no debilitan ningún control de seguridad: no tocan el servidor, la base de datos ni el despliegue (`docs/**` no dispara el despliegue).
+- La página y esta guía, por sí solas, no debilitan ningún control de seguridad ni tocan el servidor, la base de datos o el despliegue (`docs/**` no dispara el despliegue). Esta rama sí añade archivos en `server/scripts` y `server/tests` (el comando de la primera sección), así que el despliegue se dispara cuando la rama llegue a `main`: hasta entonces el comando no existe en la VM. El comando tampoco debilita el MFA: lo deja activo en todas las cuentas que lo exigen.
 - Las cuentas de la demostración se crean y se retiran **por el responsable técnico**, no por quien presenta (secciones 3 y 6).
 
 La página funciona sin conexión y no envía nada a ningún sitio (tiene una política CSP que lo impide). Funciona en Chrome, Edge, Firefox y Safari, abierta con doble clic o desde un servidor `http://`.
@@ -216,7 +220,7 @@ Las claves foráneas tienen `ON DELETE CASCADE` (`server/database/schema.sql`): 
 
 ```sql
 -- 1) Ver las cuentas
-SELECT id, role, username, created_at FROM users WHERE username IN ('demo.estudiante1', 'demo.estudiante2', 'demo.docente');
+SELECT id, role, username, created_at FROM users WHERE username IN ('demo.docente', 'demo.estudiante1', 'demo.estudiante2');
 
 -- 2) Ver qué estudiantes colgarían del docente de demostración (deben ser solo los de la demo)
 SELECT s.user_id, u.username
@@ -225,12 +229,12 @@ WHERE s.teacher_id IN (SELECT id FROM users WHERE username = 'demo.docente');
 
 -- 3) Borrar (solo si lo anterior es correcto)
 START TRANSACTION;
-DELETE FROM users WHERE username IN ('demo.estudiante1', 'demo.estudiante2', 'demo.docente');
+DELETE FROM users WHERE username IN ('demo.docente', 'demo.estudiante1', 'demo.estudiante2');
 -- Revisa "Query OK, N rows affected" y vuelve a ejecutar el SELECT 1. Luego:
 COMMIT;   -- o ROLLBACK; si algo no cuadra
 ```
 
-Alternativa sin borrar: `UPDATE users SET is_active = 0 WHERE username IN ('demo.estudiante1', 'demo.estudiante2', 'demo.docente');`
+Alternativa sin borrar: `UPDATE users SET is_active = 0 WHERE username IN ('demo.docente', 'demo.estudiante1', 'demo.estudiante2');`
 
 ### Cuentas de gestión (tabla `staff_accounts`)
 
@@ -238,25 +242,26 @@ Las solicitudes de suspensión o activación (`staff_change_requests`) apuntan a
 
 ```sql
 -- 1) Ver las cuentas (el listado equivale a node scripts/list-staff.js)
-SELECT id, username, role, status, created_at FROM staff_accounts WHERE username LIKE 'demo.%';
+SELECT id, username, role, status, created_at FROM staff_accounts
+WHERE username IN ('demo.accesos', 'demo.auditor', 'demo.analista', 'demo.contenido', 'demo.revision', 'demo.juego', 'demo.moderacion', 'demo.soporte');
 
 -- 2) Ver las solicitudes que las referencian
 SELECT * FROM staff_change_requests
-WHERE target_id    IN (SELECT id FROM staff_accounts WHERE username LIKE 'demo.%')
-   OR requested_by IN (SELECT id FROM staff_accounts WHERE username LIKE 'demo.%')
-   OR decided_by   IN (SELECT id FROM staff_accounts WHERE username LIKE 'demo.%');
+WHERE target_id    IN (SELECT id FROM staff_accounts WHERE username IN ('demo.accesos', 'demo.auditor', 'demo.analista', 'demo.contenido', 'demo.revision', 'demo.juego', 'demo.moderacion', 'demo.soporte'))
+   OR requested_by IN (SELECT id FROM staff_accounts WHERE username IN ('demo.accesos', 'demo.auditor', 'demo.analista', 'demo.contenido', 'demo.revision', 'demo.juego', 'demo.moderacion', 'demo.soporte'))
+   OR decided_by   IN (SELECT id FROM staff_accounts WHERE username IN ('demo.accesos', 'demo.auditor', 'demo.analista', 'demo.contenido', 'demo.revision', 'demo.juego', 'demo.moderacion', 'demo.soporte'));
 
 -- 3) Borrar (solo si todas las solicitudes del paso 2 son de la demostración)
 START TRANSACTION;
 DELETE FROM staff_change_requests
-WHERE target_id    IN (SELECT id FROM staff_accounts WHERE username LIKE 'demo.%')
-   OR requested_by IN (SELECT id FROM staff_accounts WHERE username LIKE 'demo.%')
-   OR decided_by   IN (SELECT id FROM staff_accounts WHERE username LIKE 'demo.%');
-DELETE FROM staff_accounts WHERE username LIKE 'demo.%';
+WHERE target_id    IN (SELECT id FROM staff_accounts WHERE username IN ('demo.accesos', 'demo.auditor', 'demo.analista', 'demo.contenido', 'demo.revision', 'demo.juego', 'demo.moderacion', 'demo.soporte'))
+   OR requested_by IN (SELECT id FROM staff_accounts WHERE username IN ('demo.accesos', 'demo.auditor', 'demo.analista', 'demo.contenido', 'demo.revision', 'demo.juego', 'demo.moderacion', 'demo.soporte'))
+   OR decided_by   IN (SELECT id FROM staff_accounts WHERE username IN ('demo.accesos', 'demo.auditor', 'demo.analista', 'demo.contenido', 'demo.revision', 'demo.juego', 'demo.moderacion', 'demo.soporte'));
+DELETE FROM staff_accounts WHERE username IN ('demo.accesos', 'demo.auditor', 'demo.analista', 'demo.contenido', 'demo.revision', 'demo.juego', 'demo.moderacion', 'demo.soporte');
 COMMIT;   -- o ROLLBACK;
 ```
 
-Alternativa sin borrar: `UPDATE staff_accounts SET status = 'suspended' WHERE username LIKE 'demo.%';` (cualquier sesión abierta de esas cuentas deja de servir).
+Alternativa sin borrar: `UPDATE staff_accounts SET status = 'suspended' WHERE username IN ('demo.accesos', 'demo.auditor', 'demo.analista', 'demo.contenido', 'demo.revision', 'demo.juego', 'demo.moderacion', 'demo.soporte');` (cualquier sesión abierta de esas cuentas deja de servir).
 
 ### Lo que permanece
 
