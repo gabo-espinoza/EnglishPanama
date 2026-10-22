@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { login, loginMfa } from '../../api/auth';
 import { saveSession } from '../../api/session';
+import { clearPendingNotice, peekPendingNotice } from '../../api/sessionPolicy';
 import AuthBackground from '../../components/AuthBackground';
 
 export default function Login() {
@@ -9,7 +10,11 @@ export default function Login() {
     const [password, setPassword] = useState('');
     // Mensaje que deja otra pantalla al devolver al usuario al login (por ejemplo, un token vencido).
     const location = useLocation();
-    const [error, setError] = useState(location.state?.notice || '');
+    const [error, setError] = useState(location.state?.notice || peekPendingNotice() || '');
+    // El aviso de cierre por recarga se muestra una vez.
+    useEffect(() => {
+        clearPendingNotice();
+    }, []);
     const [loading, setLoading] = useState(false);
     // Si la cuenta tiene MFA, el primer paso devuelve un reto (mfaToken) y no una sesion.
     // También llega por el estado del router desde "Crea tu contraseña" (docente que ya tenía MFA).

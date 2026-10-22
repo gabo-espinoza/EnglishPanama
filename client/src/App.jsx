@@ -12,9 +12,12 @@ import Audit from './pages/staff/Audit.jsx';
 import Analytics from './pages/staff/Analytics.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 import StaffRoute from './components/StaffRoute.jsx';
+import IdleLogout from './components/IdleLogout.jsx';
 
 export default function App() {
     return (
+        <>
+        <IdleLogout />
         <Routes>
             <Route path="/" element={<Navigate to="/login" replace />} />
             <Route path="/login" element={<Login />} />
@@ -53,5 +56,6 @@ export default function App() {
                 <Route path="*" element={<Navigate to="/staff" replace />} />
             </Route>
         </Routes>
+        </>
     );
 }

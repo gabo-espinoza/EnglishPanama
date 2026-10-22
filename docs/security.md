@@ -93,7 +93,7 @@ contrasena antes de recibir sesion; las cuentas existentes quedan en 0).
 | Conservar la temporal | La contrasena nueva debe ser distinta de la temporal, coincidir con su confirmacion y cumplir el largo (4 a 72 caracteres). |
 | Trazabilidad | El cambio queda en la auditoria como `user.password.initial_set`. |
 
-El `passwordToken` viaja en el estado del router (historial del navegador, `window.history.state`), nunca en `localStorage` ni en la URL. Sobrevive a una recarga mientras el token sea valido; muere a los 15 minutos o al usarse.
+El `passwordToken` viaja en el estado del router (historial del navegador, `window.history.state`), nunca en `localStorage` ni en la URL. Una recarga lo descarta (politica de sesion del cliente: ver docs/frontend.md); ademas muere a los 15 minutos o al usarse.
 
 ### 2.3 Grado de la clase
 
