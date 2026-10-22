@@ -1,41 +1,18 @@
-// Sesión del personal de gestión (staff). Claves PROPIAS: no deben chocar con
-// ep_token / ep_role (sesión de estudiantes y docentes), para que cerrar una
-// sesión no cierre la otra. Es una conveniencia del navegador, no la fuente de
-// verdad: el servidor revalida el token en cada petición y GET /api/staff/me
-// fija el rol y el área reales.
-const TOKEN_KEY = 'ep_staff_token';
-const ROLE_KEY = 'ep_staff_role';
-const AREA_KEY = 'ep_staff_area';
+// Sesión del personal de gestión (staff): vive SOLO en memoria, igual que la de estudiantes y
+// docentes (ver session.js y sessionPolicy.js): recargar la página la descarta. Es una variable
+// PROPIA: cerrar una sesión no cierra la otra. No es la fuente de verdad: el servidor revalida el
+// token en cada petición y GET /api/staff/me fija el rol y el área reales.
+let current = null;
 
 export function saveStaffSession(token, role, area) {
-    try {
-        localStorage.setItem(TOKEN_KEY, token);
-        localStorage.setItem(ROLE_KEY, role);
-        localStorage.setItem(AREA_KEY, area || '');
-        return true;
-    } catch {
-        // Almacenamiento no disponible (modo privado o bloqueado): la sesión no se guarda.
-        return false;
-    }
+    current = token && role ? { token, role, area: area || null } : null;
+    return current !== null;
 }
 
 export function getStaffSession() {
-    try {
-        const token = localStorage.getItem(TOKEN_KEY);
-        const role = localStorage.getItem(ROLE_KEY);
-        const area = localStorage.getItem(AREA_KEY) || null;
-        return token && role ? { token, role, area } : null;
-    } catch {
-        return null;
-    }
+    return current ? { token: current.token, role: current.role, area: current.area } : null;
 }
 
 export function clearStaffSession() {
-    try {
-        localStorage.removeItem(TOKEN_KEY);
-        localStorage.removeItem(ROLE_KEY);
-        localStorage.removeItem(AREA_KEY);
-    } catch {
-        // Nada que limpiar si el almacenamiento no está disponible.
-    }
+    current = null;
 }

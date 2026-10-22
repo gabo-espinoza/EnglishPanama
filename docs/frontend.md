@@ -17,11 +17,13 @@ Se abre en `http://localhost:5173`.
 ```
 src/
 ├── api/                      Conexión con el backend y sesiones. client.js (apiRequest y ApiError),
-│                             session.js (sesión de estudiante y docente), staffSession.js (sesión de gestión)
+│                             session.js (sesión de estudiante y docente), staffSession.js (sesión de gestión),
+│                             sessionPolicy.js (cierre al recargar y por inactividad)
 │                             y auth.js, student.js, teacher.js y staff.js (llamadas de cada área)
 ├── components/
 │   ├── AuthBackground.jsx    Fondo con ráfagas de viento para Login y Registro
 │   ├── WindBackdrop.jsx      Fondo fijo de los paneles (estudiante, docente y gestión)
+│   ├── IdleLogout.jsx        Cierra la sesión tras 5 minutos sin actividad (no pinta nada)
 │   ├── ProtectedRoute.jsx    Protege rutas según sesión y rol
 │   ├── StaffRoute.jsx        Guarda de /staff y contexto useStaff() (rol y área desde GET /api/staff/me)
 │   └── TopBar.jsx            Barra superior de los paneles: nombre del usuario y cierre de sesión
@@ -110,7 +112,7 @@ Sin conexión, `fetch` falla antes de recibir respuesta. En ese caso `apiRequest
 - Pantalla "Crea tu contraseña": dos campos (contraseña nueva y repetirla). Si no coinciden se avisa en el cliente sin viajar al servidor; el servidor sigue siendo la autoridad (4 a 72 caracteres y distinta de la temporal).
 - Envía `POST /api/auth/set-initial-password` con el `passwordToken`. La respuesta continúa el flujo normal del login: un docente sin autenticador recibe `{ mfaSetupRequired, enrollToken }` y pasa a `/mfa/setup`; con MFA activo vuelve a `/login` con el reto del segundo paso; en otro caso se guarda la sesión y entra a su panel.
 - `401` (el token de 15 minutos venció o se revocó) y `409 PASSWORD_ALREADY_SET` (la contraseña ya fue creada) devuelven al login con un aviso. Los demás errores (400, 429) se muestran en el formulario.
-- Sin `passwordToken` en el estado (por ejemplo, al abrir la ruta directamente), la ruta redirige al login. El estado del router vive en `window.history.state`, así que una recarga lo conserva mientras el token sea válido (muere a los 15 minutos o tras usarse).
+- Sin `passwordToken` en el estado (por ejemplo, al abrir la ruta directamente), la ruta redirige al login. El estado del router vive en `window.history.state`, pero la política de sesión (ver "Sesión") lo descarta al recargar: el docente vuelve al login y repite el primer paso (la contraseña temporal sigue valiendo, no se gasta).
 - Red de seguridad: si una sesión vieja recibe `403` con `code: "PASSWORD_CHANGE_REQUIRED"`, el cliente HTTP (`api/client.js`) descarta la sesión y lleva a `/login`, donde el flujo normal lo conduce a crear la contraseña.
 
 ### Panel docente (`/teacher`)
@@ -141,7 +143,7 @@ Tres pestañas: **Mis misiones**, **Ranking** y **Mi perfil**. Los paneles queda
 Acceso separado del de estudiantes y docentes, con su propia sesión:
 
 - **Inicio de sesión (`/staff/login`):** usuario, contraseña y código TOTP, contra `POST /api/staff/auth/login`. Al entrar guarda la sesión de staff y va a `/staff`.
-- **Sesión propia:** usa las claves de `localStorage` `ep_staff_token`, `ep_staff_role` y `ep_staff_area` (`api/staffSession.js`). No toca `ep_token` ni `ep_role`, así que cerrar la sesión de gestión no cierra la de estudiante o docente. La sesión dura 20 minutos (el servidor responde `expiresIn: 1200`); al vencer, un `401` lleva a `/staff/login` con un aviso.
+- **Sesión propia:** vive en una variable en memoria distinta de la de estudiantes y docentes (`api/staffSession.js`), así que cerrar la sesión de gestión no cierra la de estudiante o docente. La sesión dura 20 minutos (el servidor responde `expiresIn: 1200`); al vencer, un `401` lleva a `/staff/login` con un aviso.
 - **Guarda (`StaffRoute`):** sin sesión de staff redirige a `/staff/login`. Con sesión, llama una vez a `GET /api/staff/me` y toma de ahí el usuario, el `role` y el `area`. Lo que quedó guardado al iniciar sesión no decide nada en pantalla. Un `403` significa cuenta no activa y vuelve al login con un aviso.
 - **Menú y rutas:** `StaffLayout` muestra solo las secciones de `ROLE_SECTIONS` para el rol, y `RequireSection` vuelve a `/staff` si la ruta no corresponde. El servidor es la autoridad; el cliente solo oculta.
 - **Cerrar sesión:** borra únicamente las claves de staff.
@@ -165,6 +167,20 @@ Las cinco páginas prototipo (contenido, revisión de contenido, gestión del ju
 
 ### Rutas
 `/login`, `/register`, `/password/initial`, `/mfa/setup` y las protegidas `/student/*` y `/teacher/*` (`ProtectedRoute`). Área de gestión: `/staff/login` (público) y `/staff` con `StaffRoute`, con las secciones anidadas `/staff/access`, `/staff/audit` y `/staff/analytics` (cada una con `RequireSection`). Cualquier otra ruta bajo `/staff` vuelve a `/staff`. `/` redirige a `/login`.
+
+## Sesión
+
+Dos reglas de seguridad del navegador, pensadas para equipos compartidos como los de un colegio:
+
+1. **Recargar la página cierra la sesión.** La sesión (el token y el rol) vive **solo en memoria** (`api/session.js` y `api/staffSession.js`): no se escribe en `localStorage` ni en `sessionStorage`. Por eso recargar, abrir otra pestaña o cerrar el navegador la descarta. Además, al arrancar (`applyReloadPolicy()` en `main.jsx`, **antes** de montar el router) se detecta si la carga fue una recarga y, en ese caso:
+   - se descarta el estado del historial, donde viajan los tokens de un solo propósito (primer ingreso, vinculación del MFA y reto del segundo paso), porque el navegador lo conserva entre recargas;
+   - si la pantalla no es pública, se vuelve al login (`/staff/login` para el área de gestión, `/login` para el resto) con el aviso "Por seguridad, la sesión se cierra al recargar la página. Inicia sesión de nuevo.";
+   - se borran las claves `ep_token`, `ep_role`, `ep_staff_token`, `ep_staff_role` y `ep_staff_area` que hubieran quedado en `localStorage` de versiones anteriores.
+2. **Cinco minutos sin actividad cierran la sesión.** `IdleLogout.jsx` (montado una vez en `App.jsx`) cuenta el tiempo desde la última actividad (mouse, teclado, toque o desplazamiento; cambiar de pantalla también cuenta). Pasados 5 minutos limpia las sesiones y lleva al login con el aviso "Tu sesión se cerró por 5 minutos de inactividad. Inicia sesión de nuevo." Aplica a los paneles, al primer ingreso y a la vinculación del MFA; **no** corre en `/login`, `/register` ni `/staff/login`. Compara marcas de tiempo (no confía en un solo temporizador) y revisa al volver a la pestaña, así que también cierra tras una laptop dormida o una pestaña en segundo plano.
+
+El tiempo (`IDLE_TIMEOUT_MS`) y los avisos están en `api/sessionPolicy.js`.
+
+**Límite:** es una medida del navegador. Cerrar la sesión descarta el token en la pantalla, pero el servidor no lo revoca: sigue siendo válido hasta que expire (2 horas para estudiantes y docentes, 20 minutos para gestión).
 
 ## Pendiente
 - Estudiante: jugar las actividades y mostrar XP en vivo. El reto diario se responde desde el panel y solo otorga XP si la respuesta es correcta.
