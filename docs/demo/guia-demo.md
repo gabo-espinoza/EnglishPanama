@@ -2,6 +2,100 @@
 
 Esta guía explica cómo mostrar los códigos MFA (TOTP) en la pantalla de una laptop durante la demostración, sin pasar el celular de mano en mano. Archivo de apoyo: `docs/demo/codigos-totp.html`.
 
+## Crear todas las cuentas con un comando
+
+El responsable técnico puede crear (y después retirar) todo el juego de cuentas de demostración con **un solo comando**: `server/scripts/demo-accounts.js`. El MFA sigue **activo** en todas las cuentas que lo exigen (docente y los 8 roles de gestión): el script no debilita ni omite nada de la autenticación. Los códigos se muestran en la página `codigos-totp.html`, alimentada con los secretos que el script imprime una sola vez.
+
+> **Decisión del responsable del proyecto:** todas las cuentas de demostración comparten **una misma contraseña**, y por eso es más débil que una contraseña por cuenta. Se acepta solo porque las cuentas viven unas horas. **Las cuentas deben retirarse el mismo día** con `remove` (ver abajo). No uses esa contraseña en ningún otro sitio ni la guardes en el repositorio.
+
+### Dónde se ejecuta
+
+El responsable técnico lo ejecuta en la **VM de la aplicación**, dentro de `/var/www/englishpanama/api` (el despliegue copia ahí la carpeta `server/`). El script estará disponible **después del próximo despliegue** de esta rama.
+
+```bash
+cd /var/www/englishpanama/api
+```
+
+### Crear las cuentas
+
+```bash
+# Contraseña por variable de entorno (queda en el historial del shell: bórralo después)...
+DEMO_ACCOUNTS_PASSWORD='<contraseña compartida>' node scripts/demo-accounts.js create --allow-production
+
+# ...o sin variable: el script la pide por entrada estándar.
+node scripts/demo-accounts.js create --allow-production
+```
+
+- **Contraseña**: de 12 a 72 caracteres. Sale de la variable `DEMO_ACCOUNTS_PASSWORD` o, si no existe, se pide por entrada estándar. Nunca se imprime ni se registra.
+- **Protección de producción**: con `NODE_ENV=production` (el caso de la VM) tanto `create` como `remove` **solo corren si el comando incluye `--allow-production`**. Una variable de entorno nunca lo habilita. Fuera de producción no hace falta el indicador. El error de la protección sale antes de conectar con la base.
+- **Cuentas** (lista fija, todas empiezan con `demo.`):
+
+| Cuenta | Rol | MFA |
+|---|---|---|
+| `demo.accesos` | access_manager | Sí |
+| `demo.auditor` | auditor | Sí |
+| `demo.analista` | analyst | Sí |
+| `demo.contenido` | content_manager | Sí |
+| `demo.revision` | content_reviewer | Sí |
+| `demo.juego` | game_manager | Sí |
+| `demo.moderacion` | moderator | Sí |
+| `demo.soporte` | support | Sí |
+| `demo.docente` | teacher («Docente de demostración») | Sí, activo desde el inicio |
+| `demo.estudiante1`, `demo.estudiante2` | student, enlazados al docente demo | No (es opcional) |
+
+- **Docente**: queda con el MFA activo, **sin** cambio obligatorio de contraseña, con un código de clase generado y con el **grado sin declarar** para que la demostración lo declare. El resumen imprime el código de clase.
+- **Idempotente**: si una cuenta ya existe, se omite con una línea clara. Nunca se cambia la contraseña de una cuenta existente ni se vuelve a mostrar su secreto. Si un nombre `demo.*` de la lista existe con un rol distinto al esperado, el script se detiene con un error y no cambia nada.
+
+### El bloque de secretos y dónde pegarlo
+
+Al final, `create` imprime un bloque delimitado, con una línea por cada cuenta con MFA (las 8 de gestión y el docente), en el formato que acepta la página:
+
+```text
+# ---- INICIO del bloque para docs/demo/codigos-totp.html (se muestra UNA sola vez) ----
+demo.accesos: <SECRETO_EN_BASE32>
+demo.auditor: <SECRETO_EN_BASE32>
+...
+demo.docente: <SECRETO_EN_BASE32>
+# ---- FIN del bloque ----
+```
+
+1. Copia el bloque (la página ignora las líneas que empiezan con `#`) y pégalo en el cuadro de `codigos-totp.html` (sección 2). Los códigos aparecen solos.
+2. Los secretos se muestran **una sola vez** y no se pueden consultar después. Cuando los hayas pegado, **limpia la terminal y el historial** (`clear`, `history -c`).
+3. Si pierdes un secreto, usa `--reissue` (siguiente apartado).
+
+### Reemitir los secretos MFA (`--reissue`)
+
+```bash
+node scripts/demo-accounts.js create --reissue --allow-production
+```
+
+Para las cuentas demo que **ya existen**, genera un secreto MFA nuevo y lo imprime una sola vez (mismo bloque), sube `token_version` y, por tanto, revoca las sesiones abiertas de esas cuentas. El secreto anterior deja de servir. **No cambia contraseñas** y no crea las cuentas que falten (para eso, `create` sin la opción).
+
+### Retirar las cuentas (`remove`)
+
+```bash
+# 1) Simulacro: muestra qué se borraría y no cambia nada
+node scripts/demo-accounts.js remove --dry-run --allow-production
+
+# 2) Borrado real
+node scripts/demo-accounts.js remove --allow-production
+```
+
+- Borra **exactamente** la lista fija de 11 cuentas; nunca usa patrones como `LIKE 'demo.%'`.
+- **Seguridad de la cascada**: las tablas `users`, `teachers` y `students` se enlazan con `ON DELETE CASCADE`, así que borrar al docente demo borraría **a cualquier estudiante registrado con su código de clase**. Antes de borrar, el script cuenta los estudiantes enlazados al docente que **no** son de la lista (con sus intentos y XP). Si hay alguno, **aborta sin borrar nada** y muestra quiénes y qué se perdería. Solo si de verdad quieres borrarlos, repite con `--include-linked-students`:
+
+  ```bash
+  node scripts/demo-accounts.js remove --include-linked-students --allow-production
+  ```
+
+- Las solicitudes de `staff_change_requests` que involucran a las cuentas de gestión demo (como objetivo, solicitante o quien decide) se borran **primero**, dentro de la misma transacción, y se informa cuántas fueron (y cuántas involucraban también a cuentas que no son de la demostración).
+- Al final imprime un resumen con las filas borradas por tabla. Las filas de `audit_log` **no se borran**: la auditoría es de solo añadir por diseño. Cada `create`, `--reissue` y `remove` que cambia algo deja una entrada de auditoría (`demo.accounts.create`, `demo.accounts.reissue`, `demo.accounts.remove`).
+- **Retira las cuentas el mismo día de la demostración.**
+
+### Alternativa manual
+
+Las secciones 3, 4 y 6 describen cómo crear y retirar las cuentas **una por una** (con `create-staff.js`, el alta de docentes desde el panel y sentencias SQL). Sigue siendo válido, por ejemplo si quieres cuentas con contraseñas distintas, pero el comando anterior es el camino recomendado para la demostración.
+
 ## 1. Para qué sirve y qué NO cambia
 
 La página `codigos-totp.html` hace lo mismo que la app de autenticación del celular: con la clave de cada cuenta calcula el código de 6 dígitos que cambia cada 30 segundos. Solo **reemplaza el celular por una pantalla**.
@@ -35,7 +129,7 @@ La página funciona sin conexión y no envía nada a ningún sitio (tiene una po
 
 ## 3. Cómo obtener la clave de cada tipo de cuenta
 
-Crear las cuentas en producción y ejecutar estos comandos lo hace **el responsable técnico**.
+Crear las cuentas en producción y ejecutar estos comandos lo hace **el responsable técnico**. Esta sección describe la **alternativa manual**, cuenta por cuenta; para la demostración lo más simple es el comando de la primera sección («Crear todas las cuentas con un comando»), que ya imprime los secretos listos para pegar.
 
 ### Cuenta de gestión (access_manager, auditor, analyst, etc.)
 
@@ -66,20 +160,22 @@ Los estudiantes **no necesitan MFA**: es opcional para ellos. Se registran con e
 
 ## 4. Cuentas sugeridas para la demostración
 
-Un estudiante, un docente y una cuenta por cada rol de gestión. Usa nombres de usuario claramente de demostración (3 a 30 caracteres: letras, números, `_`, `.` o `-`).
+Las cuentas que crea el comando (primera sección) son las de la tabla siguiente, con los nombres exactos que usa el script. Si las creas a mano, usa esos mismos nombres para poder retirarlas con `remove`.
+
+Un estudiante (el script crea dos, `demo.estudiante1` y `demo.estudiante2`), un docente y una cuenta por cada rol de gestión. Usa nombres de usuario claramente de demostración (3 a 30 caracteres: letras, números, `_`, `.` o `-`).
 
 | Cuenta | Rol | Observación |
 |---|---|---|
-| `demo.estudiante` | student | Sin MFA (opcional) |
+| `demo.estudiante1`, `demo.estudiante2` | student | Sin MFA (opcional) |
 | `demo.docente` | teacher | MFA obligatorio |
 | `demo.accesos` | access_manager | Tiene panel (`/staff/access`) |
 | `demo.auditor` | auditor | Tiene panel |
 | `demo.analista` | analyst | Tiene panel |
 | `demo.contenido` | content_manager | Sin panel todavía |
-| `demo.revisor` | content_reviewer | Sin panel todavía |
-| `demo.juegos` | game_manager | Sin panel todavía |
+| `demo.revision` | content_reviewer | Sin panel todavía |
+| `demo.juego` | game_manager | Sin panel todavía |
 | `demo.soporte` | support | Sin panel todavía |
-| `demo.moderador` | moderator | Sin panel todavía |
+| `demo.moderacion` | moderator | Sin panel todavía |
 
 Los 8 roles de gestión están definidos en `server/src/config/staffRoles.js`. Hoy solo `access_manager`, `auditor` y `analyst` tienen un panel; los demás pueden iniciar sesión pero no tienen pantallas propias.
 
@@ -97,13 +193,15 @@ Para comprobar la página antes de la demostración puedes usar la clave de prue
 
 ## 5. Buenas prácticas
 
-- Contraseña **única y fuerte por cuenta**; no reutilices ni compartas una misma contraseña entre cuentas.
+- Para cuentas reales, contraseña **única y fuerte por cuenta**. La excepción es la demostración con `demo-accounts.js`: una contraseña compartida y débil, por decisión del responsable del proyecto, aceptable solo porque las cuentas se retiran el mismo día.
 - No guardes el bloque de claves en chats públicos, en correos reenviados ni en el repositorio.
 - Usa nombres de usuario claramente de demostración (`demo.…`) para poder identificarlos y retirarlos.
 - Si envías el HTML por correo, envía **solo la página**, nunca las claves: esas se pegan en cada laptop.
-- Al terminar: **Borrar todo** en la página, cierra la pestaña y retira las cuentas (sección 6).
+- Al terminar: **Borrar todo** en la página, cierra la pestaña y retira las cuentas (`remove`, o la sección 6 si las creaste a mano).
 
-## 6. Cómo retirar las cuentas de demostración
+## 6. Cómo retirar las cuentas de demostración a mano
+
+Si las cuentas se crearon con `demo-accounts.js`, lo recomendado es retirarlas con `node scripts/demo-accounts.js remove --allow-production` (primera sección), que ya hace las comprobaciones de abajo. Esta sección es el procedimiento **manual** con SQL.
 
 Lo ejecuta **el responsable técnico**, en la VM de la base de datos. El procedimiento es siempre el mismo: respaldo, `SELECT` para ver qué se va a tocar, y recién entonces el cambio.
 
@@ -118,7 +216,7 @@ Las claves foráneas tienen `ON DELETE CASCADE` (`server/database/schema.sql`): 
 
 ```sql
 -- 1) Ver las cuentas
-SELECT id, role, username, created_at FROM users WHERE username IN ('demo.estudiante', 'demo.docente');
+SELECT id, role, username, created_at FROM users WHERE username IN ('demo.estudiante1', 'demo.estudiante2', 'demo.docente');
 
 -- 2) Ver qué estudiantes colgarían del docente de demostración (deben ser solo los de la demo)
 SELECT s.user_id, u.username
@@ -127,12 +225,12 @@ WHERE s.teacher_id IN (SELECT id FROM users WHERE username = 'demo.docente');
 
 -- 3) Borrar (solo si lo anterior es correcto)
 START TRANSACTION;
-DELETE FROM users WHERE username IN ('demo.estudiante', 'demo.docente');
+DELETE FROM users WHERE username IN ('demo.estudiante1', 'demo.estudiante2', 'demo.docente');
 -- Revisa "Query OK, N rows affected" y vuelve a ejecutar el SELECT 1. Luego:
 COMMIT;   -- o ROLLBACK; si algo no cuadra
 ```
 
-Alternativa sin borrar: `UPDATE users SET is_active = 0 WHERE username IN ('demo.estudiante', 'demo.docente');`
+Alternativa sin borrar: `UPDATE users SET is_active = 0 WHERE username IN ('demo.estudiante1', 'demo.estudiante2', 'demo.docente');`
 
 ### Cuentas de gestión (tabla `staff_accounts`)
 
