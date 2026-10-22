@@ -131,7 +131,7 @@ Arriba, la identidad del estudiante: avatar, alias, grado y nivel de la clase, n
 Tres pestañas: **Mis misiones**, **Ranking** y **Mi perfil**. Los paneles quedan montados y solo se ocultan, para no repetir peticiones al cambiar de pestaña.
 
 - **Mis misiones:** con nivel, el **reto del día** y una tarjeta por módulo (Vocabulario, Gramática y Lectura) que carga `GET /api/activities/:moduleSlug` (`api/student.js`). El servidor ya devuelve solo las actividades del nivel de la clase; el cliente no filtra nada.
-  - **Reto del día (solo lectura):** `GET /api/daily-challenge` muestra la pregunta, sus opciones y si ya se completó. No hay botón para responder: el endpoint de completar no recibe la respuesta del estudiante. Sin reto para hoy muestra "Hoy no hay un reto diario para tu clase."
+  - **Reto del día:** `GET /api/daily-challenge` muestra la pregunta y sus opciones (un grupo de botones de opción, operable con teclado) y si ya se completó. El botón **Responder** (deshabilitado hasta elegir una opción y mientras se envía) llama a `POST /api/daily-challenge/complete` con `{ answer }`; el servidor califica y el cliente nunca conoce la respuesta correcta. Con `correct: false` muestra "Esa no es la respuesta. Inténtalo de nuevo." y el reto sigue disponible; con `correct: true` muestra "¡Correcto! Ganaste N XP", recarga el perfil y el ranking (XP y posición) y deja la tarjeta en "Reto de hoy completado". Un `409` (ya completado) solo vuelve a leer el reto, sin error. Sin reto para hoy muestra "Hoy no hay un reto diario para tu clase."
   - Las actividades con `isExample: true` llevan una etiqueta **"Ejemplo"**: son actividades de demostración, no contenido oficial.
   - Un módulo sin actividades muestra "Aún no hay actividades en este módulo.". Un `401` limpia la sesión y lleva al login.
 - **Ranking:** `GET /api/ranking`, ordenado por posición. La fila del propio estudiante se marca con "Tú".
@@ -167,5 +167,5 @@ Las cinco páginas prototipo (contenido, revisión de contenido, gestión del ju
 `/login`, `/register`, `/password/initial`, `/mfa/setup` y las protegidas `/student/*` y `/teacher/*` (`ProtectedRoute`). Área de gestión: `/staff/login` (público) y `/staff` con `StaffRoute`, con las secciones anidadas `/staff/access`, `/staff/audit` y `/staff/analytics` (cada una con `RequireSection`). Cualquier otra ruta bajo `/staff` vuelve a `/staff`. `/` redirige a `/login`.
 
 ## Pendiente
-- Estudiante: jugar las actividades y mostrar XP en vivo. El reto diario es de solo lectura hasta que haya una forma de responderlo.
+- Estudiante: jugar las actividades y mostrar XP en vivo. El reto diario se responde desde el panel y solo otorga XP si la respuesta es correcta.
 - Gestión: contenido, revisión de contenido, juego, moderación y soporte, cuando el backend exista (diseño en la rama `PaginasWebs`).
