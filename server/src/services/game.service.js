@@ -14,6 +14,11 @@ const RULE_KEYS = {
     dailyChallengeXp: 'rule_daily_challenge_xp'
 };
 const DEFAULT_RULES = Object.freeze({ xpPerCorrect: 5, xpPerLevel: 100, dailyChallengeXp: 10 });
+const MODULE_SLUGS = ['vocabulary', 'grammar', 'reading'];
+const LEVELS = ['A1.1', 'A1.2', 'A1.3'];
+const QUESTION_SEARCH_MAX = 100;
+const QUESTION_LIMIT_DEFAULT = 50;
+const QUESTION_LIMIT_MAX = 100;
 const BOUNDS = {
     xpPerCorrect: [1, 50],
     xpPerLevel: [10, 1000],
@@ -132,6 +137,59 @@ async function listDailyChallenges() {
     return rows;
 }
 
+// Un parametro de la URL debe ser un texto simple (`?q=a&q=b` llega como arreglo).
+function queryText(value, label) {
+    if (typeof value !== 'string') throw new AppError(`${label} no es valido.`, 400);
+    return value;
+}
+
+// Buscador de preguntas para elegir un reto: solo actividades publicadas y sin la respuesta
+// correcta ni las opciones (el gestor del juego no necesita ver las soluciones).
+async function listQuestions({ module, level, q, limit } = {}) {
+    const where = ["a.status = 'published'"];
+    const params = [];
+    if (module !== undefined) {
+        if (!MODULE_SLUGS.includes(queryText(module, 'El modulo'))) throw new AppError('Modulo no valido.', 400);
+        where.push('m.slug = ?');
+        params.push(module);
+    }
+    if (level !== undefined) {
+        if (!LEVELS.includes(queryText(level, 'El nivel'))) throw new AppError('Nivel no valido.', 400);
+        where.push('a.level = ?');
+        params.push(level);
+    }
+    if (q !== undefined) {
+        const text = queryText(q, 'La busqueda').trim();
+        if (text.length > QUESTION_SEARCH_MAX) {
+            throw new AppError(`La busqueda admite hasta ${QUESTION_SEARCH_MAX} caracteres.`, 400);
+        }
+        if (text) {
+            // Se escapan %, _ y el propio escape (|) para que el texto se busque tal cual.
+            const escaped = text.replace(/[|%_]/g, '|$&');
+            where.push("LOWER(q.prompt) LIKE LOWER(?) ESCAPE '|'");
+            params.push(`%${escaped}%`);
+        }
+    }
+    let max = QUESTION_LIMIT_DEFAULT;
+    if (limit !== undefined) {
+        const text = queryText(limit, 'El limite');
+        if (!/^[1-9]\d{0,3}$/.test(text)) throw new AppError('El limite no es valido.', 400);
+        max = Math.min(Number(text), QUESTION_LIMIT_MAX);
+    }
+    const [rows] = await pool.query(
+        `SELECT q.id, a.id AS activityId, a.title AS activityTitle, m.slug AS module,
+                a.level, a.game_type AS gameType, q.prompt AS text
+         FROM questions q
+         JOIN activities a ON a.id = q.activity_id
+         JOIN modules m ON m.id = a.module_id
+         WHERE ${where.join(' AND ')}
+         ORDER BY a.id, q.id
+         LIMIT ?`,
+        [...params, max]
+    );
+    return rows;
+}
+
 async function addDailyChallenge(actor, { questionId, position }) {
     const qid = Number(questionId);
     if (!Number.isInteger(qid) || qid <= 0) throw new AppError('Pregunta no valida.', 400);
@@ -140,6 +198,15 @@ async function addDailyChallenge(actor, { questionId, position }) {
          WHERE q.id = ?`, [qid]
     );
     if (questions.length === 0) throw new AppError('La pregunta no existe.', 404);
+    if (questions[0].status !== 'published') {
+        throw new AppError(
+            'Solo se pueden agregar preguntas de actividades publicadas.', 409, 'QUESTION_NOT_PUBLISHED'
+        );
+    }
+    const [dup] = await pool.query('SELECT 1 FROM daily_challenges WHERE question_id = ? LIMIT 1', [qid]);
+    if (dup.length > 0) {
+        throw new AppError('Esa pregunta ya esta en el pool.', 409, 'QUESTION_ALREADY_IN_POOL');
+    }
     let pos = Number(position);
     if (!Number.isInteger(pos) || pos <= 0) {
         const [max] = await pool.query('SELECT COALESCE(MAX(position), 0) + 1 AS n FROM daily_challenges');
@@ -182,5 +249,5 @@ async function removeDailyChallenge(actor, id) {
 
 module.exports = {
     RULE_KEYS, DEFAULT_RULES, parseRulePatch, validateRules, getRules, updateRules,
-    listAliases, setAliasHidden, listDailyChallenges, addDailyChallenge, removeDailyChallenge
+    listAliases, setAliasHidden, listQuestions, listDailyChallenges, addDailyChallenge, removeDailyChallenge
 };

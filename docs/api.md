@@ -757,7 +757,8 @@ tipo de juego (`memory`, `multiple_choice`, `sentence_order`, `fill_blank`).
 | `GET /aliases` | Catalogo de alias del ranking |
 | `PUT /aliases/:studentId` | `{ hidden }` (booleano obligatorio; otro valor da 400) oculta un alias: el ranking muestra "Jugador oculto" y conserva la posicion |
 | `GET /daily-challenges` | Pool del reto diario |
-| `POST /daily-challenges` | Agrega una pregunta al pool |
+| `GET /questions` | Buscador de preguntas para armar el pool. Solo actividades **publicadas**. Filtros opcionales `module` (`vocabulary`, `grammar`, `reading`), `level` (`A1.1`, `A1.2`, `A1.3`), `q` (texto contenido en la pregunta, sin distinguir mayusculas, hasta 100 caracteres) y `limit` (por defecto 50, maximo 100). Devuelve un arreglo de `{ id, activityId, activityTitle, module, level, gameType, text }`; nunca la respuesta correcta ni las opciones. Valores invalidos dan 400 |
+| `POST /daily-challenges` | `{ questionId, position? }` agrega una pregunta al pool. 404 si no existe; 409 `QUESTION_NOT_PUBLISHED` si su actividad no esta publicada; 409 `QUESTION_ALREADY_IN_POOL` si ya esta en el pool |
 | `DELETE /daily-challenges/:id` | Quita un reto del pool. Responde 409 `CHALLENGE_COMPLETED_TODAY` si alguien ya lo completo hoy (el borrado en cascada eliminaria esos registros y permitiria repetirlo) |
 
 Las reglas viven en `app_settings` y las consultan `activity.service.js`,
