@@ -142,6 +142,8 @@ node scripts/create-staff.js ana.accesos access_manager   # imprime el secreto T
 DEMO_STAFF_PASSWORD='<12+ caracteres>' node scripts/seed-demo-staff.js   # 24 cuentas demo; solo desarrollo, no corre en produccion
 ```
 
+`schema.sql` y `staff.sql` ya incluyen la estructura final de las migraciones: una base nueva no necesita correr `database/migrations/` (solo sirven para actualizar una base existente).
+
 Arrancar:
 
 ```bash
