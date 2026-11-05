@@ -163,8 +163,8 @@ async function listActivities({ role, status, module, level }) {
     return rows;
 }
 
-async function getActivity(id) {
-    const [rows] = await pool.query(
+async function getActivity(id, connection = pool) {
+    const [rows] = await connection.query(
         `SELECT a.id, a.title, a.game_type AS gameType, a.level, a.status,
                 a.passage_text AS passageText, a.sort_order AS sortOrder,
                 a.author_id AS authorId, a.reviewer_id AS reviewerId,
@@ -174,7 +174,7 @@ async function getActivity(id) {
         [id]
     );
     if (rows.length === 0) throw new AppError('La actividad no existe.', 404);
-    const [questions] = await pool.query(
+    const [questions] = await connection.query(
         `SELECT id, topic, prompt, options, correct_answer AS correctAnswer
          FROM questions WHERE activity_id = ? ORDER BY id`,
         [id]
@@ -227,7 +227,7 @@ async function updateActivity(actor, id, body) {
                 id
             ]
         );
-        return getActivity(id);
+        return getActivity(id, conn);
     });
 }
 
@@ -240,7 +240,7 @@ async function addQuestion(actor, id, body) {
             'INSERT INTO questions (activity_id, topic, prompt, options, correct_answer) VALUES (?, ?, ?, ?, ?)',
             [id, question.topic, question.prompt, JSON.stringify(question.options), JSON.stringify(question.correctAnswer)]
         );
-        return getActivity(id);
+        return getActivity(id, conn);
     });
 }
 
@@ -254,7 +254,7 @@ async function updateQuestion(actor, id, qid, body) {
             'UPDATE questions SET topic = ?, prompt = ?, options = ?, correct_answer = ? WHERE id = ?',
             [question.topic, question.prompt, JSON.stringify(question.options), JSON.stringify(question.correctAnswer), qid]
         );
-        return getActivity(id);
+        return getActivity(id, conn);
     });
 }
 
@@ -263,7 +263,7 @@ async function deleteQuestion(actor, id, qid) {
         assertStatus(activity, 'draft', 'borrar preguntas');
         const [result] = await conn.query('DELETE FROM questions WHERE id = ? AND activity_id = ?', [qid, id]);
         if (result.affectedRows === 0) throw new AppError('La pregunta no existe.', 404);
-        return getActivity(id);
+        return getActivity(id, conn);
     });
 }
 
@@ -296,7 +296,7 @@ async function submit(actor, id) {
              WHERE id = ?`,
             [id]
         );
-        return getActivity(id);
+        return getActivity(id, conn);
     });
 }
 
@@ -304,7 +304,7 @@ async function withdraw(actor, id) {
     return withLockedActivity(id, actor, 'withdraw', async (conn, activity) => {
         assertStatus(activity, 'in_review', 'retirar de revision');
         await conn.query("UPDATE activities SET status = 'draft' WHERE id = ?", [id]);
-        return getActivity(id);
+        return getActivity(id, conn);
     });
 }
 
@@ -325,7 +325,7 @@ async function revision(actor, id) {
              SELECT ?, topic, prompt, options, correct_answer FROM questions WHERE activity_id = ?`,
             [newId, id]
         );
-        return getActivity(newId);
+        return getActivity(newId, conn);
     });
 }
 
@@ -333,7 +333,7 @@ async function archive(actor, id) {
     return withLockedActivity(id, actor, 'archive', async (conn, activity) => {
         assertStatus(activity, 'published', 'archivar');
         await conn.query("UPDATE activities SET status = 'archived' WHERE id = ?", [id]);
-        return getActivity(id);
+        return getActivity(id, conn);
     });
 }
 
@@ -356,7 +356,7 @@ async function approve(actor, id) {
                     review_note = NULL WHERE id = ?`,
             [actor.id, id]
         );
-        return getActivity(id);
+        return getActivity(id, conn);
     });
 }
 
@@ -369,7 +369,7 @@ async function reject(actor, id, body) {
              WHERE id = ?`,
             [note, actor.id, id]
         );
-        return getActivity(id);
+        return getActivity(id, conn);
     });
 }
 
