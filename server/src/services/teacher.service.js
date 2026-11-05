@@ -3,6 +3,7 @@ const { levelForXp } = require('./xp.service');
 const { GRADE_LEVELS, isValidGrade, levelForGrade } = require('../config/classLevels');
 const { getClassLevelForTeacher } = require('./classLevel.service');
 const AppError = require('../utils/AppError');
+const audit = require('./audit.service');
 
 // Panel docente: lista de estudiantes de la clase del docente autenticado,
 // con nivel, XP, actividades completadas y promedio (%) por modulo.
@@ -161,6 +162,11 @@ async function declareGrade(teacherId, { grade, confirm } = {}) {
             'GRADE_LOCKED'
         );
     }
+    // El grado es irreversible: dejar constancia de quien lo declaro (diseno §5.1).
+    await audit.record({
+        actorType: 'teacher', actorId: teacherId, actorRole: 'teacher',
+        action: 'teacher.class.grade', target: `grade:${grade}`, outcome: 'ok'
+    });
     return getClass(teacherId);
 }
 

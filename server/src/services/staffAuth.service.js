@@ -53,6 +53,28 @@ function invalidCredentials() {
     return new AppError('Usuario, contrasena o codigo incorrectos.', 401);
 }
 
+// Anti-replay del TOTP del personal: mismo mecanismo atomico que en plataforma.
+async function consumeStaffTotp(account, code) {
+    let secret;
+    try {
+        secret = mfaCrypto.decrypt(account.mfa_secret_enc);
+    } catch {
+        return false;
+    }
+    const counter = totp.matchCounter(secret, code);
+    if (counter === null) return false;
+    try {
+        const [result] = await pool.query(
+            'UPDATE staff_accounts SET mfa_last_counter = ? WHERE id = ? AND (mfa_last_counter IS NULL OR mfa_last_counter < ?)',
+            [counter, account.id, counter]
+        );
+        return result.affectedRows === 1;
+    } catch (err) {
+        console.error('[mfa] no se pudo registrar el contador TOTP del personal:', err.message);
+        return true;
+    }
+}
+
 async function login({ username, password, totp: code, ip }) {
     // El bloqueo lo decide MySQL con su propio reloj (locked_until > NOW()): asi la
     // comprobacion no depende de la zona horaria en la que corra el servidor Node.
@@ -84,11 +106,7 @@ async function login({ username, password, totp: code, ip }) {
 
     let totpOk = false;
     if (passwordOk) {
-        try {
-            totpOk = totp.verifyToken(mfaCrypto.decrypt(account.mfa_secret_enc), code);
-        } catch {
-            totpOk = false;
-        }
+        totpOk = await consumeStaffTotp(account, code);
     }
 
     if (!passwordOk || !totpOk) {

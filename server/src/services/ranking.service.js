@@ -23,6 +23,12 @@ async function getClassRanking(studentId) {
         [teacherId]
     );
 
+    return buildRanking(rows);
+}
+
+// Funcion pura (sin base) para poder probar el orden y que no se filtren datos.
+// El SQL ya ordena por xp DESC, username ASC; aqui solo se asignan posiciones.
+function buildRanking(rows) {
     return rows.map((row, index) => ({
         position: index + 1,
         alias: row.alias,
@@ -32,4 +38,4 @@ async function getClassRanking(studentId) {
     }));
 }
 
-module.exports = { getClassRanking };
+module.exports = { getClassRanking, buildRanking };

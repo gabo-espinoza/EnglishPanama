@@ -148,6 +148,16 @@ Arrancar:
 npm run dev              # http://localhost:3000/api/health
 ```
 
+## Migraciones pendientes de aplicar (no incluidas en el despliegue)
+
+- `database/migrations/phase6-totp-replay.sql`: agrega `mfa_last_counter` a `users`
+  y `staff_accounts` para el anti-replay del TOTP. **Aplicar antes** de desplegar el
+  codigo que la consulta. El codigo degradea a verificacion clasica si la columna
+  aun no existe, asi que el login no se rompe.
+- `database/migrations/phase6-hardening.sql`: indice en `activities.level` y
+  unicidades propuestas. Trae `SELECT` de verificacion previa: no aplicar sin
+  revisar duplicados.
+
 ## Como probarlo
 
 ```bash
@@ -155,7 +165,7 @@ cd server
 npm test
 ```
 
-`npm test` ejecuta dos archivos:
+`npm test` ejecuta todos los archivos `tests/*.test.js` (25 en total). Los dos iniciales son:
 
 - `tests/api.test.js`: rutas protegidas sin token (`401`), rol equivocado (`403`), aislamiento
   entre el token de estudiante y el de gestion, validacion de entrada, `403` del modo demo
@@ -165,6 +175,9 @@ npm test
 
 Las pruebas del grado de la clase viven en `tests/class-grade.test.js`, `tests/classLevels.test.js`,
 `tests/errorCode.test.js` y `tests/seed-content.test.js`; `npm test` ejecuta tambien esos archivos.
+Las reglas puras (XP/niveles, correccion de respuestas, validacion de entradas, TOTP,
+anti-replay, ranking y la fecha UTC del reto diario) tienen pruebas unitarias sin base
+de datos en `day.test.js`, `xp.service.test.js`, `answers.test.js`, `answers-shape.test.js`, `display-name.test.js`, `totp.test.js`, `totp-replay.test.js`, `ranking.test.js` y `security-inputs.test.js`.
 
 Todos cargan `.env` si existe. Las pruebas que necesitan MySQL o `STAFF_MFA_KEY` **se omiten
 solas** cuando no estan disponibles, asi que la suite corre igual en una maquina sin base.

@@ -73,7 +73,9 @@ Pendientes conocidos:
 
 - **Bloqueo más débil para el personal.** El PR #5 pasó de 5 intentos y 15 minutos a 3 intentos y 10 segundos. Es la regla del equipo, pero para cuentas de gestión es mucho más laxa, y permite bloquear a cualquiera cuyo usuario se conozca. Se recomienda un bloqueo de varios minutos para el personal.
 - La auditoría nunca lanza: una acción sensible puede ejecutarse sin quedar registrada si la base de auditoría cae.
-- Un código TOTP puede reutilizarse dentro de su ventana.
+- **Resuelto:** un código TOTP ya no puede reutilizarse. El servidor guarda el
+  último contador aceptado por cuenta (`mfa_last_counter`, migración
+  `phase6-totp-replay.sql`) y rechaza cualquier código igual o anterior.
 
 ## 4. Modelo de datos
 

@@ -25,7 +25,9 @@ const allowedOrigins = (process.env.CORS_ORIGIN || '')
     .filter(Boolean);
 app.use(cors({
     origin: allowedOrigins.length > 0 ? allowedOrigins : true,
-    methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    // PUT se usa en PUT /api/teacher/class/grade; sin el metodo, el preflight de un
+    // frontend en otro origen seria rechazado.
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 

@@ -24,6 +24,10 @@ Authorization: Bearer <token>
 
 Ejemplo: 8 aciertos -> 40 XP; si el estudiante tenia 100 XP, queda con 140 XP y sube a nivel 2.
 
+El XP de una actividad se otorga **una sola vez por estudiante y actividad**: repetir
+`POST /activities/:id/attempts` sigue corrigiendo la respuesta, pero no vuelve a sumar XP
+ni a mover el ranking.
+
 Las respuestas que otorgan XP (intento de actividad y reto diario) y el ranking
 incluyen ademas los datos para pintar la **barra de progreso**: `xpIntoLevel`
 (XP dentro del nivel actual) y `xpForNextLevel` (XP que pide el siguiente nivel).
@@ -66,7 +70,8 @@ Codigos usados: `400` (datos invalidos), `401` (sin token o token invalido),
 Las cuentas de **docente no se crean por registro**: las crea el gestor de accesos con
 `POST /staff/teachers`, y el docente recibe su cuenta ya creada (usuario, contrasena temporal y codigo de
 clase). Esta ruta responde siempre `403` con `{ "error": "El registro de docentes esta deshabilitado: ..." }`,
-sin crear nada. En el primer inicio de sesion el docente **debe crear su propia contrasena**
+sin crear nada. Tambien lleva el limite de intentos de autenticacion (`authLimiter`).
+En el primer inicio de sesion el docente **debe crear su propia contrasena**
 (`POST /auth/set-initial-password`, ver mas abajo) y despues vincula su autenticador (MFA obligatorio).
 La contrasena temporal deja de servir en cuanto la reemplaza.
 
@@ -170,15 +175,28 @@ autenticacion. Queda en la auditoria (`user.password.change`).
 **Errores:** `400` faltan datos, contrasena nueva invalida o igual a la actual; `401` sin sesion, contrasena
 actual incorrecta o cuenta bloqueada. El reto de MFA y el token de vinculacion no sirven aqui (`401`).
 
+### `POST /auth/logout` - sesion normal
+
+Cierra la sesion y **revoca el token en el servidor**: sube `token_version`, asi el JWT
+actual y cualquier otra sesion abierta de la cuenta dejan de ser aceptados por
+`requireAuth` (`401`). Body vacio.
+
+**Respuesta 200:** `{ "loggedOut": true }`. **Errores:** `401` sin sesion valida.
+
 ### MFA de plataforma (implementado)
 
 Segundo factor **TOTP** (RFC 6238): codigo de 6 digitos que cambia cada 30 segundos, generado por una
 app de autenticacion (Google Authenticator, Microsoft Authenticator, Aegis, 2FAS, FreeOTP...). Es
-**opcional para estudiantes** y **obligatorio para docentes**. Si un docente pierde el celular, el
+**opcional para estudiantes** y **obligatorio para docentes**. Un codigo ya usado se
+rechaza (anti-replay): el servidor guarda el ultimo contador TOTP aceptado por cuenta.
+Esto requiere la migracion `server/database/migrations/phase6-totp-replay.sql`, que debe
+aplicarse **antes** de desplegar este codigo. Si un docente pierde el celular, el
 gestor de accesos le reinicia el MFA (`POST /staff/teachers/:id/reset-mfa`) y debe vincular uno nuevo.
 
-Un codigo incorrecto cuenta para el bloqueo de 3 intentos / 10 segundos. Estas rutas tienen el limite
-de intentos de autenticacion.
+Un codigo TOTP incorrecto cuenta para el bloqueo de 3 intentos / 10 segundos en
+`POST /auth/login/mfa`, en `POST /auth/mfa/setup` (al volver a vincular) y en
+`POST /auth/mfa/confirm`. Todas estas rutas tienen ademas el limite de intentos de
+autenticacion por IP, y los intentos fallidos quedan registrados en la auditoria.
 
 #### `POST /auth/login/mfa` - publico
 
@@ -657,6 +675,18 @@ Recorre la cadena de hashes del registro:
 ```json
 { "ok": true, "checked": 42 }
 ```
+
+---
+
+## Salud del servicio
+
+### `GET /health` - publico
+
+Comprueba que la API responde y que llega a la base de datos.
+
+**Respuesta 200:** `{ "status": "ok", "db": "connected" }`.
+**Respuesta 500:** `{ "status": "error", "db": "unreachable" }` (sin detalle interno:
+el error real queda solo en el log del servidor).
 
 ---
 
