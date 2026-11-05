@@ -92,6 +92,8 @@ async function createStudent(teacherId, { hidden = false, xp = 0 } = {}) {
 // diario que leen otras pruebas en paralelo.
 async function createActivity({ status = 'draft', level = 'A1.1' } = {}) {
     counter += 1;
+    // En una base recien creada el modulo aun no existe (otras pruebas lo siembran en paralelo).
+    await pool.query("INSERT IGNORE INTO modules (slug, name) VALUES ('vocabulary', 'Vocabulary')");
     const [mods] = await pool.query("SELECT id FROM modules WHERE slug = 'vocabulary'");
     const [res] = await pool.query(
         "INSERT INTO activities (module_id, title, game_type, level, status) VALUES (?, ?, 'multiple_choice', ?, ?)",
