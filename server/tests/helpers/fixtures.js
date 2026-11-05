@@ -88,7 +88,9 @@ async function createStudent(teacherId, { hidden = false, xp = 0 } = {}) {
     return { id: res.insertId, username, token };
 }
 
-async function createActivity({ status = 'published', level = 'A1.1' } = {}) {
+// Por defecto 'draft': una actividad publicada entraria en los listados y en el pool del reto
+// diario que leen otras pruebas en paralelo.
+async function createActivity({ status = 'draft', level = 'A1.1' } = {}) {
     counter += 1;
     const [mods] = await pool.query("SELECT id FROM modules WHERE slug = 'vocabulary'");
     const [res] = await pool.query(

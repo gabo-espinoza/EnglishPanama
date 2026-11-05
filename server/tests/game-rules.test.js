@@ -1,4 +1,9 @@
 // B4: PUT /api/staff/game/rules es parcial, valida tipos y escribe de forma atomica. MySQL real.
+//
+// Las reglas son estado GLOBAL que leen otras pruebas que corren en paralelo (XP por acierto,
+// nivel, XP del reto). Por eso aqui nunca se guardan valores distintos de los de fabrica: se
+// escriben los valores por defecto y se comprueba QUE FILAS se escribieron (solo las enviadas)
+// y que una falla a mitad no deja ninguna. Las reglas efectivas no cambian para nadie.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fx = require('./helpers/fixtures');
@@ -14,7 +19,7 @@ test.before(async () => {
 });
 test.after(async () => {
     if (ctx.ready) {
-        await fx.pool.query('DELETE FROM app_settings WHERE setting_key IN (?)', [KEYS]);
+        await clearRules();
         for (const r of saved) {
             await fx.pool.query('INSERT INTO app_settings (setting_key, setting_value) VALUES (?, ?)', [r.setting_key, r.setting_value]);
         }
@@ -22,43 +27,52 @@ test.after(async () => {
     await fx.stop(ctx.server);
 });
 
+const clearRules = () => fx.pool.query('DELETE FROM app_settings WHERE setting_key IN (?)', [KEYS]);
 const put = (body) => fx.http(ctx.baseUrl, gm.token, 'PUT', '/staff/game/rules', body);
-const stored = async () => Object.fromEntries(
-    (await fx.pool.query('SELECT setting_key, setting_value FROM app_settings WHERE setting_key IN (?)', [KEYS]))[0]
-        .map((r) => [r.setting_key, r.setting_value])
-);
+const storedKeys = async () => (await fx.pool.query(
+    'SELECT setting_key FROM app_settings WHERE setting_key IN (?) ORDER BY setting_key', [KEYS]
+))[0].map((r) => r.setting_key);
 
-test('un cuerpo parcial cambia solo las claves recibidas', async (t) => {
+test('un cuerpo parcial escribe solo las claves recibidas', async (t) => {
     if (!ctx.ready) return t.skip('sin MySQL');
-    assert.equal((await put({ xpPerCorrect: 9, xpPerLevel: 250, dailyChallengeXp: 33 })).status, 200);
-    const res = await put({ xpPerLevel: 400 });
+    await clearRules();
+    const res = await put({ xpPerLevel: 100 });
     assert.equal(res.status, 200);
-    assert.deepEqual(await res.json(), { xpPerCorrect: 9, xpPerLevel: 400, dailyChallengeXp: 33 });
-    assert.deepEqual(await stored(), {
-        rule_xp_per_correct: '9', rule_xp_per_level: '400', rule_daily_challenge_xp: '33'
-    });
+    assert.deepEqual(await res.json(), { xpPerCorrect: 5, xpPerLevel: 100, dailyChallengeXp: 10 });
+    assert.deepEqual(await storedKeys(), ['rule_xp_per_level'],
+        'las claves no enviadas no se tocan (antes se reescribian con el valor por defecto)');
+});
+
+test('el parche conserva lo guardado de las claves no enviadas', async (t) => {
+    if (!ctx.ready) return t.skip('sin MySQL');
+    // Una clave guardada con un valor propio, escrita directo: la actualizacion de otra no la pisa.
+    // Se usa un valor que coincide con el de fabrica para no afectar a otras pruebas, y se
+    // comprueba por el contenido exacto de la fila (cadena distinta: '010' no es '10').
+    await clearRules();
+    await fx.pool.query("INSERT INTO app_settings (setting_key, setting_value) VALUES ('rule_daily_challenge_xp', '010')");
+    assert.equal((await put({ xpPerCorrect: 5 })).status, 200);
+    const [[row]] = await fx.pool.query("SELECT setting_value FROM app_settings WHERE setting_key = 'rule_daily_challenge_xp'");
+    assert.equal(row.setting_value, '010', 'la clave no enviada debe quedar exactamente como estaba');
 });
 
 test('rechaza tipos, rangos, claves desconocidas y cuerpos vacios sin escribir nada', async (t) => {
     if (!ctx.ready) return t.skip('sin MySQL');
-    await put({ xpPerCorrect: 7, xpPerLevel: 120, dailyChallengeXp: 12 });
-    const before = await stored();
+    await clearRules();
     const bad = [
         { xpPerCorrect: '10' }, { xpPerCorrect: true }, { xpPerCorrect: null }, { xpPerCorrect: [7] },
         { xpPerCorrect: 2.5 }, { xpPerCorrect: 0 }, { xpPerLevel: 5000 },
-        { xpPerCorrect: 8, dailyChallengeXp: 'x' },     // una valida y otra invalida: nada se guarda
+        { xpPerLevel: 100, dailyChallengeXp: 'x' },     // una valida y otra invalida: nada se guarda
         { xpPerPerfecto: 3 }, {}, [], 'texto'
     ];
     for (const body of bad) {
         assert.equal((await put(body)).status, 400, JSON.stringify(body));
     }
-    assert.deepEqual(await stored(), before);
+    assert.deepEqual(await storedKeys(), []);
 });
 
-test('si falla una escritura a mitad, no queda ninguna clave cambiada (transaccion)', async (t) => {
+test('si falla una escritura a mitad, no queda ninguna clave guardada (transaccion)', async (t) => {
     if (!ctx.ready) return t.skip('sin MySQL');
-    await put({ xpPerCorrect: 6, xpPerLevel: 110, dailyChallengeXp: 11 });
-    const before = await stored();
+    await clearRules();
     const game = require('../src/services/game.service');
     const realGetConnection = fx.pool.getConnection.bind(fx.pool);
     let upserts = 0;
@@ -73,11 +87,11 @@ test('si falla una escritura a mitad, no queda ninguna clave cambiada (transacci
     };
     try {
         await assert.rejects(
-            game.updateRules({ id: gm.id, role: gm.role }, { xpPerCorrect: 20, xpPerLevel: 300, dailyChallengeXp: 50 }),
+            game.updateRules({ id: gm.id, role: gm.role }, { xpPerCorrect: 5, xpPerLevel: 100, dailyChallengeXp: 10 }),
             /fallo simulado/
         );
     } finally {
         fx.pool.getConnection = realGetConnection;
     }
-    assert.deepEqual(await stored(), before, 'la primera escritura debio revertirse');
+    assert.deepEqual(await storedKeys(), [], 'la primera escritura debio revertirse');
 });
