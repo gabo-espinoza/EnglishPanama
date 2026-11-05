@@ -651,7 +651,9 @@ sudo mysql englishpanama -e "DELETE FROM activities WHERE is_example = 1;"
 ## 15. Migraciones del cierre del backend (añadido el 5 de noviembre de 2026)
 
 La guía anterior cubre el paso de `main` a `develop` mediante
-`prod-upgrade-all.sql`. **El backend de la rama `feat/backend-hardening-daniel`
+`prod-upgrade-all.sql`. El backend ya está fusionado en `develop` (PR #26,
+merge `68f2480`) pero **`main` sigue sin cambios y no se ha desplegado**.
+**El backend de la rama `feat/backend-hardening-daniel`
 añade tres migraciones más que también deben aplicarse en la VM-BD antes de
 desplegar**, porque el código consulta columnas y tablas que `prod-upgrade-all.sql`
 no crea. Sin ellas, las consultas de estudiantes filtran por `status = 'published'`

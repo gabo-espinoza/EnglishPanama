@@ -1,8 +1,9 @@
 # Entrega de backend — punto de partida para el resto del equipo
 
 **Estado:** rama `feat/backend-hardening-daniel`, basada en `origin/main` (`c4eca4a`,
-lo desplegado el 22-oct-2026). **Publicada en `origin`**; PR #26 en borrador hacia
-`develop` e issue #27 abierto. Sin fusionar y sin desplegar. Ver sección 6.
+lo desplegado el 22-oct-2026). **Fusionada a `develop`** mediante el PR #26
+(merge `68f2480`); issue #27 abierto. Sin desplegar: `main` sigue en `c4eca4a`.
+Ver sección 6.
 **Backend completo:** incluye tambien las fases B y C (modulos 6 al 9 del diseno),
 implementadas segun `docs/specs/staff-fase-b.md` (propuesta para revision del equipo).
 **Alcance:** autenticación y usuarios · actividades, corrección, XP y niveles ·
@@ -183,7 +184,7 @@ siendo la referencia para los demás equipos.
 ### 6.1. Estado en GitHub
 
 - Rama `feat/backend-hardening-daniel` publicada en `origin`.
-- **PR #26** abierto en **borrador** hacia `develop`, estado `MERGEABLE`.
+- **PR #26** **MERGED** hacia `develop` (merge `68f2480`, 5-nov-2026).
 - **Issue #27** abierto con el traspaso a frontend, QA y líder técnico.
 - `main` (`c4eca4a`) y `develop` (`03f1cae`) sin cambios: **no hay merge ni despliegue**.
   `develop` es idéntico a `main` (0 commits de diferencia), así que la rama basada en
@@ -228,5 +229,6 @@ más los seeds del repositorio. Resultado real, con el runner nativo `node:test`
    `phase6-totp-replay.sql` y revisar `phase6-hardening.sql`.
 2. Verificar `.env`: `NODE_ENV`, `JWT_SECRET`, `STAFF_JWT_SECRET`, `STAFF_MFA_KEY`
    (32 bytes en base64), `AUDIT_DB_*`, `DB_PORT` y `DEMO_MODE=false`.
-3. Revisar y fusionar el PR #26; recién entonces `deploy.yml` despliega a `main`.
+3. El PR #26 ya está fusionado a `develop`. Antes de llevar `develop` a `main`:
+   respaldo y migraciones en la VM-BD. Recién en el merge a `main` se dispara `deploy.yml`.
 4. Frontend: las 5 pantallas de gestión. QA: las 29 casillas de pentest.
