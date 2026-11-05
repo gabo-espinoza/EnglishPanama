@@ -4,6 +4,7 @@
 const pool = require('../config/db');
 const AppError = require('../utils/AppError');
 const audit = require('./audit.service');
+const { parseId } = require('../utils/ids');
 const { getSetting } = require('./settings.service');
 
 const RULE_KEYS = {
@@ -99,9 +100,13 @@ async function listAliases() {
 }
 
 async function setAliasHidden(actor, studentId, hidden) {
-    const id = Number(studentId);
-    if (!Number.isInteger(id) || id <= 0) throw new AppError('Estudiante no valido.', 400);
-    const value = hidden === true ? 1 : 0;
+    const id = parseId(studentId, 'El estudiante');
+    // Debe ser un booleano explicito: un cuerpo sin `hidden` (o con otro tipo) no puede
+    // mostrar un alias oculto por accidente.
+    if (typeof hidden !== 'boolean') {
+        throw new AppError('El valor hidden debe ser true o false.', 400);
+    }
+    const value = hidden ? 1 : 0;
     const [result] = await pool.query(
         'UPDATE students SET alias_hidden = ? WHERE user_id = ?', [value, id]
     );
@@ -150,8 +155,7 @@ async function addDailyChallenge(actor, { questionId, position }) {
 }
 
 async function removeDailyChallenge(actor, id) {
-    const n = Number(id);
-    if (!Number.isInteger(n) || n <= 0) throw new AppError('Reto no valido.', 400);
+    const n = parseId(id, 'El reto');
     const [result] = await pool.query('DELETE FROM daily_challenges WHERE id = ?', [n]);
     if (result.affectedRows === 0) throw new AppError('El reto no existe.', 404);
     await audit.record({
