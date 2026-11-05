@@ -195,7 +195,9 @@ gestor de accesos le reinicia el MFA (`POST /staff/teachers/:id/reset-mfa`) y de
 
 Un codigo TOTP incorrecto cuenta para el bloqueo de 3 intentos / 10 segundos en
 `POST /auth/login/mfa`, en `POST /auth/mfa/setup` (al volver a vincular) y en
-`POST /auth/mfa/confirm`. Todas estas rutas tienen ademas el limite de intentos de
+`POST /auth/mfa/confirm`. Con la cuenta bloqueada, esas dos rutas responden 401 sin mirar el
+codigo (igual que el login), y ambas consumen el contador TOTP: un codigo ya usado se rechaza.
+Todas estas rutas tienen ademas el limite de intentos de
 autenticacion por IP, y los intentos fallidos quedan registrados en la auditoria.
 
 #### `POST /auth/login/mfa` - publico

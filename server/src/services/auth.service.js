@@ -128,15 +128,6 @@ async function clearLock(user) {
     }
 }
 
-// Compara un codigo TOTP contra un secreto cifrado sin filtrar por que falla.
-function codeMatches(encryptedSecret, code) {
-    try {
-        return totp.verifyToken(mfaCrypto.decrypt(encryptedSecret), code);
-    } catch {
-        return false;
-    }
-}
-
 // Anti-replay del segundo factor (diseno §5.2, pendiente conocido del PR #3).
 // Un unico UPDATE condicional hace la comprobacion y el registro atomicos: si dos
 // peticiones llegan con el mismo codigo, solo una ve affectedRows = 1.
@@ -383,12 +374,17 @@ async function verifyMfa({ mfaToken, totp: code }) {
 // usuario lo escanee. El secreto queda PENDIENTE: el MFA no se activa hasta confirmar.
 async function setupMfa({ userId, totp: code, enrollOnly = false }) {
     const [rows] = await pool.query(
-        'SELECT id, username, role, is_active, mfa_secret_enc, failed_attempts, locked_until FROM users WHERE id = ?',
+        'SELECT id, username, role, is_active, mfa_secret_enc, failed_attempts, locked_until, '
+        + '(locked_until > NOW()) AS is_locked FROM users WHERE id = ?',
         [userId]
     );
     const user = rows[0];
     if (!user || !user.is_active) {
         throw new AuthError('La cuenta no esta disponible.', 401);
+    }
+    // Mismo bloqueo 3 intentos / 10 s que el login: la cuenta bloqueada no puede probar codigos.
+    if (Number(user.is_locked) === 1) {
+        throw new AuthError('Demasiados intentos. Espera unos segundos.', 401);
     }
 
     // Un token de vinculacion solo sirve mientras la cuenta NO tiene MFA: no puede
@@ -399,14 +395,18 @@ async function setupMfa({ userId, totp: code, enrollOnly = false }) {
 
     // Si ya hay un segundo factor activo, para volver a vincular hay que demostrar
     // que se tiene el actual: asi una sesion robada no puede reemplazar el MFA.
-    if (user.mfa_secret_enc && !codeMatches(user.mfa_secret_enc, code)) {
-        // El codigo TOTP incorrecto tambien cuenta para el bloqueo 3/10 (diseno §5.2).
-        await registerFailedAttempt(user);
-        await audit.record({
-            actorType: user.role, actorId: user.id, actorRole: user.role,
-            action: 'user.mfa.setup', outcome: 'denied'
-        });
-        throw new AuthError('Para volver a vincular, indica el codigo actual del autenticador.', 401);
+    // El codigo se CONSUME (anti-replay): uno ya usado no sirve para reemplazar el autenticador.
+    if (user.mfa_secret_enc) {
+        if (!(await consumePlatformTotp(user.id, user.mfa_secret_enc, code))) {
+            // El codigo TOTP incorrecto tambien cuenta para el bloqueo 3/10 (diseno §5.2).
+            await registerFailedAttempt(user);
+            await audit.record({
+                actorType: user.role, actorId: user.id, actorRole: user.role,
+                action: 'user.mfa.setup', outcome: 'denied'
+            });
+            throw new AuthError('Para volver a vincular, indica el codigo actual del autenticador.', 401);
+        }
+        await clearLock(user);
     }
 
     const secret = totp.generateSecret();
@@ -426,10 +426,14 @@ async function setupMfa({ userId, totp: code, enrollOnly = false }) {
 // contrasena.
 async function confirmMfa({ userId, totp: code, enrollOnly = false }) {
     const [rows] = await pool.query(
-        'SELECT id, role, token_version, mfa_secret_enc, mfa_pending_enc, failed_attempts, locked_until, (mfa_pending_expires_at > NOW()) AS pending_valid FROM users WHERE id = ?',
+        'SELECT id, role, token_version, mfa_secret_enc, mfa_pending_enc, failed_attempts, locked_until, (locked_until > NOW()) AS is_locked, (mfa_pending_expires_at > NOW()) AS pending_valid FROM users WHERE id = ?',
         [userId]
     );
     const user = rows[0];
+    // Bloqueo 3 intentos / 10 s, primero que todo, igual que en el login.
+    if (user && Number(user.is_locked) === 1) {
+        throw new AuthError('Demasiados intentos. Espera unos segundos.', 401);
+    }
     if (enrollOnly && user && user.mfa_secret_enc) {
         throw new AuthError('La cuenta ya tiene un autenticador vinculado.', 409);
     }
@@ -440,7 +444,9 @@ async function confirmMfa({ userId, totp: code, enrollOnly = false }) {
         await pool.query('UPDATE users SET mfa_pending_enc = NULL, mfa_pending_expires_at = NULL WHERE id = ?', [user.id]);
         throw new AuthError('La vinculacion expiro. Genera un codigo nuevo.', 401);
     }
-    if (!codeMatches(user.mfa_pending_enc, code)) {
+    // El codigo se consume (anti-replay): el contador es por cuenta y el tiempo es el mismo
+    // para el secreto pendiente y el activo, asi un codigo ya usado no vale para confirmar.
+    if (!(await consumePlatformTotp(user.id, user.mfa_pending_enc, code))) {
         await registerFailedAttempt(user);
         await audit.record({
             actorType: user.role, actorId: user.id, actorRole: user.role,
@@ -448,6 +454,7 @@ async function confirmMfa({ userId, totp: code, enrollOnly = false }) {
         });
         throw new AuthError('El codigo no coincide con el QR. Intenta de nuevo.', 401);
     }
+    await clearLock(user);
 
     // Transaccion con bloqueo de fila: dos confirmaciones simultaneas no pueden
     // dejar el secreto activo a NULL despues de que la primera lo activo.
