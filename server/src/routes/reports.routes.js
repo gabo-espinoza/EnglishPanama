@@ -15,7 +15,9 @@ const allowReporters = (req, res, next) => {
     }
     return next();
 };
-platformRouter.post('/', reportLimiter, requireAuth, allowReporters, controller.create);
+// El limitador va DESPUES de autenticar: asi cuenta por cuenta (req.user.id) y las peticiones
+// sin sesion se rechazan con 401 sin gastar la cuota de nadie (antes contaba por IP).
+platformRouter.post('/', requireAuth, allowReporters, reportLimiter, controller.create);
 
 const staffRouter = express.Router();
 const scope = requireStaff({
