@@ -3,6 +3,7 @@ const AppError = require('../utils/AppError');
 const { xpForScore, progressForXp } = require('./xp.service');
 const { getClassLevelForStudent } = require('./classLevel.service');
 const { normalizeAnswer } = require('../utils/answers');
+const game = require('./game.service');
 
 const VALID_MODULES = ['vocabulary', 'grammar', 'reading'];
 const MAX_ANSWER_LENGTH = 200;
@@ -56,7 +57,7 @@ async function listActivitiesByModule(studentId, moduleSlug) {
 
     const [rows] = await pool.query(
         'SELECT id, title, game_type AS gameType, sort_order AS sortOrder, is_example AS isExample ' +
-        'FROM activities WHERE module_id = ? AND level = ? ORDER BY sort_order, id',
+        "FROM activities WHERE module_id = ? AND level = ? AND status = 'published' ORDER BY sort_order, id",
         [moduleRows[0].id, level]
     );
     return rows.map((row) => ({ ...row, isExample: Boolean(row.isExample) }));
@@ -74,7 +75,7 @@ async function findActivityForStudent(studentId, activityId) {
         throw new AppError('La actividad no existe.', 404);
     }
     const [activityRows] = await pool.query(
-        'SELECT id, passage_text AS passageText FROM activities WHERE id = ? AND level = ?',
+        "SELECT id, passage_text AS passageText FROM activities WHERE id = ? AND level = ? AND status = 'published'",
         [id, level]
     );
     if (activityRows.length === 0) {
@@ -124,7 +125,8 @@ async function submitAttempt(studentId, activityId, answers) {
     }));
 
     const score = results.filter((result) => result.isCorrect).length;
-    const xpEarned = xpForScore(score);
+    const rules = await game.getRules();
+    const xpEarned = xpForScore(score, rules.xpPerCorrect);
 
     const connection = await pool.getConnection();
     try {
@@ -165,7 +167,7 @@ async function submitAttempt(studentId, activityId, answers) {
 
         await connection.commit();
 
-        return { score, xpEarned: awardedXp, totalXp, ...progressForXp(totalXp) };
+        return { score, xpEarned: awardedXp, totalXp, ...progressForXp(totalXp, rules.xpPerLevel) };
     } catch (err) {
         await connection.rollback();
         throw err;

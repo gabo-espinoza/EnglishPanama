@@ -690,6 +690,80 @@ el error real queda solo en el log del servidor).
 
 ---
 
+---
+
+## Fase B: Gestion de Contenidos (modulo 6)
+
+**Estado:** implementado en el backend. Requiere la migracion
+`server/database/migrations/phase5-content-review.sql` **antes** del despliegue.
+Base: `/api/staff/content`. Area `content`; separacion de funciones: el
+`content_manager` escribe y envia, el `content_reviewer` aprueba o rechaza.
+
+Ciclo de vida: `draft` -> `submit` -> `in_review` -> `approve` -> `published`
+-> `archive` -> `archived`. `reject` devuelve a `draft` con `note` obligatoria;
+`withdraw` retira de revision; `revision` copia una publicada a un borrador con
+`replaces_id` (al aprobarla, la original queda `archived` en la misma transaccion).
+**Los estudiantes solo ven `published`** (`/activities`, preguntas y reto diario).
+
+| Metodo y ruta | Rol | Que hace |
+|---|---|---|
+| `GET /activities?status=&module=&level=` | gestor, revisor | Lista (el revisor solo `in_review`/`published`) |
+| `GET /activities/:id` | gestor, revisor | Detalle con respuestas correctas |
+| `POST /activities` | gestor | Crea borrador (`moduleSlug`, `title`, `gameType`, `level`, `passageText`) |
+| `PUT /activities/:id` | gestor | Edita un borrador |
+| `POST /activities/:id/questions` | gestor | Agrega pregunta |
+| `PUT /activities/:id/questions/:qid` | gestor | Edita pregunta |
+| `DELETE /activities/:id/questions/:qid` | gestor | Borra pregunta |
+| `DELETE /activities/:id` | gestor | Borra un borrador |
+| `POST /activities/:id/submit` | gestor | `draft` -> `in_review` (exige preguntas validas) |
+| `POST /activities/:id/withdraw` | gestor | `in_review` -> `draft` |
+| `POST /activities/:id/revision` | gestor | Copia una publicada a borrador |
+| `POST /activities/:id/archive` | gestor | `published` -> `archived` |
+| `POST /activities/:id/approve` | revisor | `in_review` -> `published` (autor != revisor) |
+| `POST /activities/:id/reject` | revisor | `in_review` -> `draft` con `note` |
+
+Toda transicion usa una transaccion con `SELECT ... FOR UPDATE`; un estado
+invalido responde `409` con `code: "INVALID_STATE"`. Cada escritura queda en la
+auditoria (`content.*`, `target = activity:<id>`), incluidos los intentos
+denegados. La forma de `options`/`correct_answer` se valida en el servidor por
+tipo de juego (`memory`, `multiple_choice`, `sentence_order`, `fill_blank`).
+
+## Fase C: Juego, Comunidad y Soporte (modulos 7, 8 y 9)
+
+### Reportes de contenido
+
+- `POST /api/reports` — estudiantes y docentes. Body `{ kind, activityId, questionId?, note? }`,
+  `kind` = `error` o `inappropriate`. Limite de 5 por cuenta y hora; un solo
+  reporte abierto por persona y contenido; solo se puede reportar contenido `published`.
+- `GET /api/staff/reports?status=` — `support` ve `error`, `moderator` ve
+  `inappropriate` y `content_manager` ve los `escalated`. Nunca contrasenas ni
+  datos personales: solo el alias del reportante y si su cuenta esta activa.
+- `PATCH /api/staff/reports/:id` — `{ decision }`: `escalate`, `resolve` o
+  `dismiss` segun el rol.
+
+### Gestion del juego (`/api/staff/game`, area `game`, solo `game_manager`)
+
+| Metodo y ruta | Que hace |
+|---|---|
+| `GET /rules` | Reglas vigentes de XP |
+| `PUT /rules` | Edita `xpPerCorrect` (1-50), `xpPerLevel` (10-1000) y `dailyChallengeXp` (1-100) |
+| `GET /aliases` | Catalogo de alias del ranking |
+| `PUT /aliases/:studentId` | `{ hidden }` oculta un alias: el ranking muestra "Jugador oculto" y conserva la posicion |
+| `GET /daily-challenges` | Pool del reto diario |
+| `POST /daily-challenges` | Agrega una pregunta al pool |
+| `DELETE /daily-challenges/:id` | Quita un reto del pool |
+
+Las reglas viven en `app_settings` y las consultan `activity.service.js`,
+`dailyChallenge.service.js` y `xp.service.js`; si no existen, se usan los
+valores originales (5 / 100 / 10).
+
+> **Nota de alcance:** los paneles del cliente (`/staff/content`, `/staff/review`,
+> `/staff/game`, `/staff/moderation`, `/staff/support`) son trabajo del equipo de
+> frontend. El backend expone los contratos de esta seccion; `ROLE_SECTIONS` en
+> `client/src/pages/staff/StaffLayout.jsx` aun debe ampliarse para mostrarlos.
+
+---
+
 ## Convenciones para agregar un endpoint nuevo
 
 1. Actualiza este archivo **antes** de escribir el codigo - asi el resto del equipo sabe que esperar sin leer la implementacion.

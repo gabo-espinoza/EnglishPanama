@@ -52,4 +52,18 @@ const demoLimiter = rateLimit({
     message: { error: 'Demasiados avances del dia de demostracion.' }
 });
 
-module.exports = { apiLimiter, authLimiter, dailyChallengeLimiter, demoLimiter, AUTH_RATE_LIMIT_MAX };
+// Un estudiante o docente no puede inundar la bandeja de reportes. Se cuenta
+// por cuenta autenticada, no por IP (un salon comparte la IP publica).
+const reportLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hora
+    max: 5,
+    keyGenerator: (req) => `reports:${req.user ? req.user.id : req.ip}`,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Demasiados reportes. Intenta de nuevo en una hora.' }
+});
+
+module.exports = {
+    apiLimiter, authLimiter, dailyChallengeLimiter, demoLimiter,
+    reportLimiter, AUTH_RATE_LIMIT_MAX
+};

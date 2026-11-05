@@ -2,6 +2,8 @@
 
 **Estado:** rama `feat/backend-hardening-daniel`, basada en `origin/main` (`c4eca4a`,
 lo desplegado el 22-oct-2026). Sin push ni merge. Cambios locales únicamente.
+**Backend completo:** incluye tambien las fases B y C (modulos 6 al 9 del diseno),
+implementadas segun `docs/specs/staff-fase-b.md` (propuesta para revision del equipo).
 **Alcance:** autenticación y usuarios · actividades, corrección, XP y niveles ·
 ranking · reto diario · endpoints del panel docente · modo demo
 (`PLANNING.md §3`, responsables Daniel, Carlos y Sebastián).
@@ -28,7 +30,7 @@ figuren ahí.
 | Reto diario | Califica la respuesta en servidor, 10 XP solo si es correcta, `409` si ya se completó, **fecha en UTC**, **límite de 10 intentos por estudiante y día** | PR #22; `docs/api.md` |
 | Panel docente | `/teacher/class`, `/students`, `/difficult-topics`, `PUT /class/grade` (una vez, `GRADE_LOCKED`); **declarar el grado queda en auditoría** | PDF diseño §4.1 |
 | Modo demo | `POST /demo/advance-day` con `DEMO_MODE=true`, incremento **atómico**, auditado y con límite de 30/día | PDF diseño §5.7 |
-| Pruebas | 12 archivos de pruebas sin base de datos, **54 pruebas en verde**; payloads SQLi/XSS, TOTP, anti-replay, XP, ranking, fecha UTC | PDF diseño §5.6/§5.8 |
+| Pruebas | 14 archivos de pruebas sin base de datos, **66 pruebas en verde** (27 archivos en total); payloads SQLi/XSS, TOTP, anti-replay, XP, ranking, fecha UTC, ciclo de contenido y Fase C | PDF diseño §5.6/§5.8 |
 | Documentación | `docs/api.md`, `docs/security.md`, `docs/backend.md`, `server/README.md`, `server/env.example` al día | — |
 
 ---
@@ -47,8 +49,15 @@ Contrato completo y formas de respuesta: **`docs/api.md`**.
 | 3 Identidad y Acceso | `GET /staff/accounts`, `GET`/`POST /staff/change-requests`, `POST /staff/teachers`, `POST /staff/teachers/:id/reset-mfa`, `POST /staff/teachers/:id/reset-grade` | `access_manager` |
 | 4 Auditoría | `GET /staff/audit`, `GET /staff/audit/verify`, `POST /staff/change-requests/:id/decision` | `auditor` |
 | 5 Datos y Reportes | `GET /staff/analytics/dashboard` | `analyst` |
+| 6 Gestion de Contenidos | `GET/POST/PUT/DELETE /staff/content/activities...` (14 endpoints) | `content_manager`, `content_reviewer` |
+| 7 Gestion del Juego | `/staff/game/rules`, `/aliases`, `/daily-challenges` | `game_manager` |
+| 8 Comunidad y Moderacion | `POST /reports`, `GET/PATCH /staff/reports` | `moderator` (y estudiantes/docentes al reportar) |
+| 9 Soporte | `GET/PATCH /staff/reports` | `support` (y estudiantes/docentes al reportar) |
 | Modo demo | `POST /demo/advance-day` (requiere `DEMO_MODE=true`) | cualquier rol autenticado |
 | Salud | `GET /health` | público |
+
+**Los 8 roles de gestion ya tienen endpoints propios.** Los estudiantes y docentes
+pueden reportar contenido (`POST /api/reports`), como pide la matriz §4.2.
 
 Login de personal: `POST /staff/auth/login` (usuario + contraseña + TOTP),
 `GET /staff/me`.
@@ -69,9 +78,10 @@ Login de personal: `POST /staff/auth/login` (usuario + contraseña + TOTP),
 | `support` | 9 | **ninguno** |
 
 `ROLE_SECTIONS` en `client/src/pages/staff/StaffLayout.jsx` solo define
-`access_manager`, `auditor` y `analyst`. Los otros cinco roles inician sesión y
-ven *"Aún no hay paneles para tu rol"*. `docs/frontend.md` y
-`docs/demo/guia-demo.md §4` lo documentan.
+`access_manager`, `auditor` y `analyst`. Por eso, aunque el backend ya sirve los
+cinco modulos restantes, **la pagina desplegada sigue mostrando "Aún no hay
+paneles para tu rol"** para esos cinco roles: faltan las pantallas del cliente.
+Eso es exactamente la parte que sigue (ver seccion 3).
 
 > **Aclaración importante:** el PDF §4.2 y su página 11 dicen explícitamente que
 > *"el moderador o Soporte solo necesitan un módulo: es mínimo privilegio"*. Que
@@ -85,16 +95,20 @@ ven *"Aún no hay paneles para tu rol"*. `docs/frontend.md` y
 
 ### Frontend (Fernando, Cristian, Heather)
 - Consumir **solo** los endpoints de la sección 2.1; `docs/api.md` es la fuente.
+- Construir las 5 pantallas que faltan (`/staff/content`, `/staff/review`,
+  `/staff/game`, `/staff/moderation`, `/staff/support`) y ampliar `STAFF_SECTIONS`
+  y `ROLE_SECTIONS` en `StaffLayout.jsx`. El backend ya esta listo y documentado.
 - `POST /auth/logout` es nuevo: el cierre de sesión actual solo borra el token en
   memoria. Llamarlo invalida el token también en el servidor.
-- **No construir** las pantallas de contenido, revisión, juego, moderación ni
-  soporte todavía: no hay backend para ellas. El prototipo `PaginasWebs` usa datos
-  falsos (`USE_MOCK`) y fue excluido en el PR #20.
-- Si se aprueba la Fase B/C, el punto de partida es el spec sin fusionar
-  `origin/docs/spec-fase-b:docs/specs/staff-fase-b.md` (14 endpoints
-  `/staff/content/*`, `POST /api/reports`, tabla `content_reports`, migración
-  `phase5-content-review.sql`). **Requiere aprobación del líder técnico antes de
-  escribir código.**
+- El prototipo `PaginasWebs` usa datos falsos (`USE_MOCK`) y fue excluido en el
+  PR #20: **no se debe reutilizar**, sino conectar las pantallas nuevas a los
+  endpoints reales de la sección 2.1.
+- La Fase B/C **ya esta implementada en el backend** siguiendo el spec
+  `origin/docs/spec-fase-b`. Las 3 decisiones abiertas de ese spec se tomaron con
+  los valores que el propio spec propone: el gestor archiva directamente con
+  auditoria, cualquier `content_manager` puede editar cualquier borrador, y el
+  orden fue servidor primero. Si el lider tecnico decide otra cosa, son cambios
+  acotados en `content.service.js`.
 
 ### QA (Nathaniel, Isora)
 - `docs/security.md §5` tiene **29 casillas de pentest sin marcar**. Ejecutarlas en
@@ -106,17 +120,20 @@ ven *"Aún no hay paneles para tu rol"*. `docs/frontend.md` y
 
 ### Infraestructura / líder técnico (Gabriel)
 **Orden obligatorio antes de fusionar a `main`:**
-1. Aplicar `server/database/migrations/phase6-totp-replay.sql` en la **VM-BD**
+1. Aplicar `server/database/migrations/phase5-content-review.sql` en la **VM-BD**
+   (estado del contenido, `content_reports`, `alias_hidden`). **Sin esta migracion
+   las consultas de estudiantes fallan**, porque filtran por `status = 'published'`.
+2. Aplicar `server/database/migrations/phase6-totp-replay.sql` en la **VM-BD**
    (agrega `mfa_last_counter` a `users` y `staff_accounts`). El código degrada sin
    romperse si la columna falta, pero el anti-replay no actúa.
-2. Revisar `server/database/migrations/phase6-hardening.sql`: el índice de
+3. Revisar `server/database/migrations/phase6-hardening.sql`: el índice de
    `activities.level` es seguro; las tres restricciones `UNIQUE` están
    **comentadas** y traen `SELECT` de verificación previa. Ejecutarlos solo si no
    hay duplicados.
-3. Verificar `.env`: `NODE_ENV`, `JWT_SECRET`, `STAFF_JWT_SECRET`, `STAFF_MFA_KEY`
+4. Verificar `.env`: `NODE_ENV`, `JWT_SECRET`, `STAFF_JWT_SECRET`, `STAFF_MFA_KEY`
    (32 bytes en base64), `AUDIT_DB_*` y `DEMO_MODE=false` fuera de la presentación.
    `server/env.example` es la plantilla.
-4. Revisar y fusionar la rama; el despliegue a `main` es automático por
+5. Revisar y fusionar la rama; el despliegue a `main` es automático por
    `.github/workflows/deploy.yml`.
 
 ### Fase B/C (contenido, juego, moderación, soporte)
@@ -133,7 +150,8 @@ ven *"Aún no hay paneles para tu rol"*. `docs/frontend.md` y
 |---|---|
 | MFA obligatorio en estudiantes (rompería las cuentas demo) | Grupo / profesor |
 | Minijuegos y "jugar las actividades" | Frontend + grupo (excluido en PR #15/#20) |
-| Fase B/C y los 5 roles sin paneles | Líder técnico (spec sin aprobar) |
+| Fase B/C: aprobar las 3 decisiones abiertas del spec | Líder técnico |
+| Las 5 pantallas de gestion que faltan | Frontend |
 | Cuatro ojos en `reset-mfa` / `reset-grade` | Fase A (hoy es acción directa de `access_manager`) |
 | `audit.record()` fail-closed si cae la BD de auditoría | Pregunta abierta `docs/specs/staff-fase-a.md:245` |
 | HTTPS / CSP del HTML estático / cuenta de emergencia / alertas / respaldos cifrados | Infraestructura |
@@ -146,10 +164,10 @@ ven *"Aún no hay paneles para tu rol"*. `docs/frontend.md` y
 
 ```bash
 cd server
-npm test                 # 54 pruebas sin base de datos, 0 fallidas
+npm test                 # 66 pruebas sin base de datos, 0 fallidas
 node --check src/**/*.js # sintaxis
 ```
 
-Cambios verificados: 38 archivos (modificados y nuevos), sin `.env`, sin secretos en
+Cambios verificados: 59 archivos (modificados y nuevos, en dos commits), sin `.env`, sin secretos en
 el repositorio, sin push ni merge. El clon de trabajo del autor
 (`feat/security-phase2`) no se tocó.

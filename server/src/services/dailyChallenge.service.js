@@ -4,6 +4,7 @@ const { getDemoDayOffset } = require('./settings.service');
 const { progressForXp } = require('./xp.service');
 const { getClassLevelForStudent } = require('./classLevel.service');
 const { normalizeAnswer } = require('../utils/answers');
+const game = require('./game.service');
 const { addDaysUtc, toDateOnlyUtc, dayOfYearUtc } = require('../utils/day');
 
 // XP que otorga completar el reto diario.
@@ -29,7 +30,7 @@ async function resolveTodayChallenge(studentId) {
              FROM daily_challenges dc
              JOIN questions q ON q.id = dc.question_id
              JOIN activities a ON a.id = q.activity_id
-             WHERE a.level = ?
+             WHERE a.level = ? AND a.status = 'published'
              ORDER BY dc.position, dc.id`,
             [level]
         );
@@ -112,7 +113,8 @@ async function completeDailyChallenge(studentId, answer) {
         return { correct: false };
     }
 
-    const xpEarned = DAILY_CHALLENGE_XP;
+    const rules = await game.getRules();
+    const xpEarned = rules.dailyChallengeXp;
 
     const connection = await pool.getConnection();
     try {
@@ -146,7 +148,10 @@ async function completeDailyChallenge(studentId, answer) {
 
         await connection.commit();
 
-        return { correct: true, completed: true, completedOn, xpEarned, totalXp, ...progressForXp(totalXp) };
+        return {
+            correct: true, completed: true, completedOn, xpEarned, totalXp,
+            ...progressForXp(totalXp, rules.xpPerLevel)
+        };
     } catch (err) {
         await connection.rollback();
         // Capa defensiva: si MySQL aborta por interbloqueo o espera excedida, pero otro envio ya

@@ -148,8 +148,21 @@ Arrancar:
 npm run dev              # http://localhost:3000/api/health
 ```
 
+## Fases B y C (modulos 6 al 9)
+
+Implementadas en el backend segun el diseno §4.1/§5.3 y el spec
+`docs/specs/staff-fase-b.md`: ciclo de vida del contenido con aprobacion de otra
+cuenta, reportes de estudiantes y docentes, reglas de juego configurables,
+alias ocultos del ranking y pool del reto diario. El contrato completo esta en
+`docs/api.md`. Los paneles del cliente siguen siendo trabajo del frontend.
+
 ## Migraciones pendientes de aplicar (no incluidas en el despliegue)
 
+- `database/migrations/phase5-content-review.sql`: agrega a `activities` el
+  estado del ciclo de vida, autor, revisor, nota y `replaces_id`; crea
+  `content_reports` y `students.alias_hidden`. **Aplicar antes** de desplegar:
+  las consultas de estudiantes filtran por `status = 'published'`. El valor por
+  defecto `published` deja el contenido existente intacto.
 - `database/migrations/phase6-totp-replay.sql`: agrega `mfa_last_counter` a `users`
   y `staff_accounts` para el anti-replay del TOTP. **Aplicar antes** de desplegar el
   codigo que la consulta. El codigo degradea a verificacion clasica si la columna
@@ -165,7 +178,7 @@ cd server
 npm test
 ```
 
-`npm test` ejecuta todos los archivos `tests/*.test.js` (25 en total). Los dos iniciales son:
+`npm test` ejecuta todos los archivos `tests/*.test.js` (27 en total). Los dos iniciales son:
 
 - `tests/api.test.js`: rutas protegidas sin token (`401`), rol equivocado (`403`), aislamiento
   entre el token de estudiante y el de gestion, validacion de entrada, `403` del modo demo

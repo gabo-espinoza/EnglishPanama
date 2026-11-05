@@ -9,20 +9,20 @@
 const XP_PER_CORRECT = 5;
 const XP_PER_LEVEL = 100;
 
-function xpForScore(correctCount) {
-    return correctCount * XP_PER_CORRECT;
+function xpForScore(correctCount, perCorrect = XP_PER_CORRECT) {
+    return correctCount * perCorrect;
 }
 
-function levelForXp(totalXp) {
-    return Math.floor(totalXp / XP_PER_LEVEL) + 1;
+function levelForXp(totalXp, perLevel = XP_PER_LEVEL) {
+    return Math.floor(totalXp / perLevel) + 1;
 }
 
 // Datos listos para pintar la barra de progreso del estudiante.
-function progressForXp(totalXp) {
+function progressForXp(totalXp, perLevel = XP_PER_LEVEL) {
     return {
-        level: levelForXp(totalXp),
-        xpIntoLevel: totalXp % XP_PER_LEVEL,
-        xpForNextLevel: XP_PER_LEVEL
+        level: levelForXp(totalXp, perLevel),
+        xpIntoLevel: totalXp % perLevel,
+        xpForNextLevel: perLevel
     };
 }
 

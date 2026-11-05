@@ -47,7 +47,7 @@ el pool usa el puerto por defecto de MySQL (3306).
 npm test
 ```
 
-`node --test` descubre automaticamente todos los `tests/*.test.js` (25 archivos).
+`node --test` descubre automaticamente todos los `tests/*.test.js` (27 archivos).
 Ademas de las pruebas de integracion (`api.test.js`, `staff.test.js`,
 `mfa-platform.test.js`, `mfa-teacher.test.js`, `class-grade.test.js`,
 `daily-challenge.test.js`, `demo-accounts.test.js`, ...), hay pruebas unitarias
