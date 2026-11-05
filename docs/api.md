@@ -746,7 +746,7 @@ tipo de juego (`memory`, `multiple_choice`, `sentence_order`, `fill_blank`).
 | Metodo y ruta | Que hace |
 |---|---|
 | `GET /rules` | Reglas vigentes de XP |
-| `PUT /rules` | Edita `xpPerCorrect` (1-50), `xpPerLevel` (10-1000) y `dailyChallengeXp` (1-100) |
+| `PUT /rules` | Edita `xpPerCorrect` (1-50), `xpPerLevel` (10-1000) y `dailyChallengeXp` (1-100). Es parcial: solo cambian las claves enviadas (enteros JSON; claves desconocidas o cuerpo vacio dan 400) y se guardan de forma atomica. Devuelve las reglas vigentes completas |
 | `GET /aliases` | Catalogo de alias del ranking |
 | `PUT /aliases/:studentId` | `{ hidden }` oculta un alias: el ranking muestra "Jugador oculto" y conserva la posicion |
 | `GET /daily-challenges` | Pool del reto diario |

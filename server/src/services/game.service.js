@@ -4,7 +4,7 @@
 const pool = require('../config/db');
 const AppError = require('../utils/AppError');
 const audit = require('./audit.service');
-const { getSetting, setSetting } = require('./settings.service');
+const { getSetting } = require('./settings.service');
 
 const RULE_KEYS = {
     xpPerCorrect: 'rule_xp_per_correct',
@@ -18,17 +18,33 @@ const BOUNDS = {
     dailyChallengeXp: [1, 100]
 };
 
-function validateRules(rules) {
-    const out = { ...DEFAULT_RULES };
+// Valida SOLO las claves recibidas y devuelve ese parche. Las claves ausentes no se tocan:
+// un cuerpo parcial no debe resetear al valor por defecto lo que ya esta guardado.
+// Cada valor debe ser un entero JSON (no cadenas, booleanos, arreglos ni null).
+function parseRulePatch(rules) {
+    if (rules === null || typeof rules !== 'object' || Array.isArray(rules)) {
+        throw new AppError('El cuerpo debe ser un objeto con las reglas.', 400);
+    }
+    for (const key of Object.keys(rules)) {
+        if (!Object.prototype.hasOwnProperty.call(BOUNDS, key)) {
+            throw new AppError(`La regla ${key} no existe.`, 400);
+        }
+    }
+    const patch = {};
     for (const [key, [min, max]] of Object.entries(BOUNDS)) {
         if (rules[key] === undefined) continue;
-        const n = Number(rules[key]);
-        if (!Number.isInteger(n) || n < min || n > max) {
+        const n = rules[key];
+        if (typeof n !== 'number' || !Number.isInteger(n) || n < min || n > max) {
             throw new AppError(`La regla ${key} debe estar entre ${min} y ${max}.`, 400);
         }
-        out[key] = n;
+        patch[key] = n;
     }
-    return out;
+    return patch;
+}
+
+// Reglas completas resultantes de aplicar el parche sobre los valores por defecto.
+function validateRules(rules) {
+    return { ...DEFAULT_RULES, ...parseRulePatch(rules) };
 }
 
 async function getRules() {
@@ -42,15 +58,33 @@ async function getRules() {
 }
 
 async function updateRules(actor, rules) {
-    const next = validateRules(rules || {});
-    for (const [key, setting] of Object.entries(RULE_KEYS)) {
-        await setSetting(setting, next[key]);
+    const patch = parseRulePatch(rules || {});
+    if (Object.keys(patch).length === 0) {
+        throw new AppError('Indica al menos una regla para cambiar.', 400);
+    }
+    // Atomico: o se guardan todas las claves del parche o ninguna.
+    const conn = await pool.getConnection();
+    try {
+        await conn.beginTransaction();
+        for (const [key, value] of Object.entries(patch)) {
+            await conn.query(
+                'INSERT INTO app_settings (setting_key, setting_value) VALUES (?, ?) '
+                + 'ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)',
+                [RULE_KEYS[key], String(value)]
+            );
+        }
+        await conn.commit();
+    } catch (err) {
+        try { await conn.rollback(); } catch { /* la conexion ya cayo */ }
+        throw err;
+    } finally {
+        conn.release();
     }
     await audit.record({
         actorType: 'staff', actorId: actor.id, actorRole: actor.role,
         action: 'game.rules.update', target: 'game:rules', outcome: 'ok'
     });
-    return next;
+    return getRules();
 }
 
 // Catalogo de alias: nunca nombres reales, solo el alias del ranking.
@@ -128,6 +162,6 @@ async function removeDailyChallenge(actor, id) {
 }
 
 module.exports = {
-    RULE_KEYS, DEFAULT_RULES, validateRules, getRules, updateRules,
+    RULE_KEYS, DEFAULT_RULES, parseRulePatch, validateRules, getRules, updateRules,
     listAliases, setAliasHidden, listDailyChallenges, addDailyChallenge, removeDailyChallenge
 };
