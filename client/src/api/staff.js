@@ -208,6 +208,20 @@ export function listDailyChallenges(token) {
     return apiRequest('/staff/game/daily-challenges', { token });
 }
 
+// Devuelve un ARREGLO de { id, activityId, activityTitle, module, level, gameType, text } solo de
+// actividades publicadas (nunca la respuesta correcta). Filtros opcionales: module (vocabulary |
+// grammar | reading), level (A1.1 | A1.2 | A1.3), q (texto, hasta 100 caracteres) y limit (50 por
+// defecto, maximo 100).
+export function listGameQuestions(token, { module, level, q, limit } = {}) {
+    const params = new URLSearchParams();
+    if (module) params.set('module', module);
+    if (level) params.set('level', level);
+    if (q) params.set('q', q);
+    if (limit) params.set('limit', String(limit));
+    const query = params.toString();
+    return apiRequest(`/staff/game/questions${query ? `?${query}` : ''}`, { token });
+}
+
 // `questionId` obligatorio; `position` opcional (si falta, va al final). 404 si la pregunta no
 // existe. Devuelve 201 { id, questionId, position }.
 export function addDailyChallenge(token, questionId, position) {
