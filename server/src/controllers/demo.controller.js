@@ -9,7 +9,7 @@ async function advanceDay(req, res, next) {
         if (process.env.DEMO_MODE !== 'true') {
             throw new AppError('El modo demo esta desactivado.', 403);
         }
-        const result = await demoService.advanceDay();
+        const result = await demoService.advanceDay(req.user);
         res.json(result);
     } catch (err) {
         next(err);

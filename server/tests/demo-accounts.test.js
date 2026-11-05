@@ -390,10 +390,14 @@ function counts(stdout) {
 }
 
 async function staffLogin(username, secret, password = PASSWORD) {
+    // Escenario independiente: limpiar el contador evita reutilizar el codigo TOTP (anti-replay).
+    await q('UPDATE staff_accounts SET mfa_last_counter = NULL WHERE username = ?', [username]);
     return call('POST', '/staff/auth/login', { body: { username, password, totp: totp.generateToken(secret) } });
 }
 
 async function teacherSession(secret, password = PASSWORD) {
+    // Igual que staffLogin: no reutilizar el codigo TOTP dentro de la ventana de 30 s.
+    await q('UPDATE users SET mfa_last_counter = NULL WHERE username = ?', [TEACHER]);
     const res = await call('POST', '/auth/login', { body: { username: TEACHER, password } });
     const body = await res.json();
     if (!body.mfaRequired) return { first: res, body };

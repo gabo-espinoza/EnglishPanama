@@ -15,7 +15,7 @@ async function getClassRanking(studentId) {
     const teacherId = studentRows[0].teacherId;
 
     const [rows] = await pool.query(
-        `SELECT u.username AS alias, s.avatar, s.xp
+        `SELECT u.username AS alias, s.avatar, s.xp, s.alias_hidden AS aliasHidden
          FROM students s
          JOIN users u ON u.id = s.user_id
          WHERE s.teacher_id = ?
@@ -23,13 +23,19 @@ async function getClassRanking(studentId) {
         [teacherId]
     );
 
+    return buildRanking(rows);
+}
+
+// Funcion pura (sin base) para poder probar el orden y que no se filtren datos.
+// El SQL ya ordena por xp DESC, username ASC; aqui solo se asignan posiciones.
+function buildRanking(rows) {
     return rows.map((row, index) => ({
         position: index + 1,
-        alias: row.alias,
+        alias: row.aliasHidden ? 'Jugador oculto' : row.alias,
         avatar: row.avatar,
         xp: row.xp,
         ...progressForXp(row.xp)
     }));
 }
 
-module.exports = { getClassRanking };
+module.exports = { getClassRanking, buildRanking };

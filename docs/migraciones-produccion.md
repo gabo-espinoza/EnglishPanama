@@ -645,3 +645,56 @@ sudo mysql englishpanama -e "DELETE FROM activities WHERE is_example = 1;"
 - [ ] **Punto de control B** superado (`pm2` online, `/api/health` OK)
 - [ ] Cuentas `access_manager` y `auditor` creadas (sección 8) y primer docente creado (sección 8.1)
 - [ ] Verificación funcional (sección 9)
+
+---
+
+## 15. Migraciones del cierre del backend (añadido el 5 de noviembre de 2026)
+
+La guía anterior cubre el paso de `main` a `develop` mediante
+`prod-upgrade-all.sql`. **El backend de la rama `feat/backend-hardening-daniel`
+añade tres migraciones más que también deben aplicarse en la VM-BD antes de
+desplegar**, porque el código consulta columnas y tablas que `prod-upgrade-all.sql`
+no crea. Sin ellas, las consultas de estudiantes filtran por `status = 'published'`
+sobre una columna inexistente y el login anti-replay no actúa.
+
+Aplicar **después** de la sección 5 y **antes** del despliegue (sección 7), en este
+orden, sobre la base `englishpanama`:
+
+```bash
+sudo mysql englishpanama < phase5-content-review.sql && echo "phase5 OK"
+sudo mysql englishpanama < phase6-totp-replay.sql    && echo "phase6-totp OK"
+# phase6-hardening.sql: revisar primero los SELECT de verificacion previa;
+# las tres restricciones UNIQUE estan comentadas. Ejecutar solo si no hay duplicados.
+```
+
+**[VM-BD]** — comprobación posterior:
+
+```bash
+sudo mysql englishpanama -e "SHOW COLUMNS FROM activities LIKE 'status'; \
+  SHOW COLUMNS FROM users LIKE 'mfa_last_counter'; \
+  SHOW COLUMNS FROM staff_accounts LIKE 'mfa_last_counter'; \
+  SHOW TABLES LIKE 'content_reports';"
+```
+
+Esperado: `status` (`enum('draft','in_review','published','archived')`, default
+`published`), `mfa_last_counter` en `users` y `staff_accounts`, y la tabla
+`content_reports`.
+
+> **Importante:** `phase5-content-review.sql` fue corregido en esta rama. La versión
+> anterior tenía las comillas internas del `ENUM` sin duplicar dentro de un `SET @sql`
+> y fallaba en MySQL 8 con `ERROR 1064`. Usar únicamente la versión de esta rama.
+> Las nueve migraciones se verificaron aplicadas sobre una base MySQL 8 limpia con
+> **0 errores** (ver `docs/entrega-backend.md` §6.2).
+
+Estas migraciones son idempotentes (comprueban `information_schema`), son aditivas y
+no modifican datos existentes: el default `published` deja todo el contenido ya
+publicado intacto. Aun así, **respaldo antes de aplicar** (sección 4) y punto de
+control A (sección 5.4).
+
+**Lista de verificación adicional:**
+
+- [ ] `phase5-content-review.sql` (versión corregida) aplicado en la VM-BD
+- [ ] `phase6-totp-replay.sql` aplicado en la VM-BD
+- [ ] `phase6-hardening.sql` revisado; `UNIQUE` solo si no hay duplicados
+- [ ] Comprobación de columnas y tablas anterior correcta
+- [ ] `DB_PORT` presente en el `.env` de la VM-APP (o dejar el default 3306)

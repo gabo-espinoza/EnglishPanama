@@ -29,4 +29,41 @@ const authLimiter = rateLimit({
     message: { error: 'Demasiados intentos de autenticacion. Espera unos minutos.' }
 });
 
-module.exports = { apiLimiter, authLimiter, AUTH_RATE_LIMIT_MAX };
+// Limite dedicado al reto diario (seguimiento pendiente del PR #22): con 3 o 4
+// opciones y reintentos ilimitados un estudiante podia adivinar la respuesta. Se
+// cuenta por cuenta (req.user.id), no por IP: un salon entero comparte la IP publica.
+const dailyChallengeLimiter = rateLimit({
+    windowMs: 24 * 60 * 60 * 1000, // 1 dia
+    max: 10,
+    keyGenerator: (req) => `daily-challenge:${req.user ? req.user.id : req.ip}`,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Demasiados intentos con el reto de hoy. Vuelve manana.' }
+});
+
+// El modo demo mueve el "dia" de TODA la plataforma: aunque DEMO_MODE=true, nadie
+// deberia poder adelantarlo cientos de veces. Se cuenta por cuenta autenticada.
+const demoLimiter = rateLimit({
+    windowMs: 24 * 60 * 60 * 1000,
+    max: 30,
+    keyGenerator: (req) => `demo-advance:${req.user ? req.user.id : req.ip}`,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Demasiados avances del dia de demostracion.' }
+});
+
+// Un estudiante o docente no puede inundar la bandeja de reportes. Se cuenta
+// por cuenta autenticada, no por IP (un salon comparte la IP publica).
+const reportLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hora
+    max: 5,
+    keyGenerator: (req) => `reports:${req.user ? req.user.id : req.ip}`,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Demasiados reportes. Intenta de nuevo en una hora.' }
+});
+
+module.exports = {
+    apiLimiter, authLimiter, dailyChallengeLimiter, demoLimiter,
+    reportLimiter, AUTH_RATE_LIMIT_MAX
+};

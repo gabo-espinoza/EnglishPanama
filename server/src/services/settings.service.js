@@ -25,4 +25,19 @@ async function getDemoDayOffset() {
     return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-module.exports = { getSetting, setSetting, getDemoDayOffset, DEMO_OFFSET_KEY };
+// Incremento atomico: un solo UPDATE, sin leer y volver a escribir. Dos llamadas
+// concurrentes a POST /api/demo/advance-day ya no pueden perder un incremento.
+async function incrementSetting(key) {
+    const [result] = await pool.query(
+        'UPDATE app_settings SET setting_value = CAST(setting_value AS UNSIGNED) + 1 WHERE setting_key = ?',
+        [key]
+    );
+    if (result.affectedRows === 0) {
+        await setSetting(key, 1);
+        return 1;
+    }
+    const parsed = parseInt(await getSetting(key, '1'), 10);
+    return Number.isNaN(parsed) ? 1 : parsed;
+}
+
+module.exports = { getSetting, setSetting, getDemoDayOffset, incrementSetting, DEMO_OFFSET_KEY };

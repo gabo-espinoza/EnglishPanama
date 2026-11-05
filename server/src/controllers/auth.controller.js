@@ -60,6 +60,16 @@ async function changePassword(req, res, next) {
     }
 }
 
+// POST /api/auth/logout (autenticado) - invalida el token y las demas sesiones.
+async function logout(req, res, next) {
+    try {
+        const result = await authService.logout({ userId: req.user.id });
+        res.json(result);
+    } catch (err) {
+        next(err);
+    }
+}
+
 // POST /api/auth/set-initial-password  (token pwd_change) - { newPassword, confirmPassword }
 async function setInitialPassword(req, res, next) {
     try {
@@ -71,4 +81,4 @@ async function setInitialPassword(req, res, next) {
     }
 }
 
-module.exports = { setInitialPassword, changePassword, registerStudent, login, loginMfa, setupMfa, confirmMfa };
+module.exports = { setInitialPassword, changePassword, registerStudent, login, loginMfa, setupMfa, confirmMfa, logout };
