@@ -8,18 +8,33 @@ import { useStaff } from '../../components/StaffRoute';
 export const STAFF_SECTIONS = {
     access: { path: '/staff/access', label: 'Identidad y accesos' },
     audit: { path: '/staff/audit', label: 'Auditoría' },
-    analytics: { path: '/staff/analytics', label: 'Datos y reportes' }
+    analytics: { path: '/staff/analytics', label: 'Datos y reportes' },
+    content: { path: '/staff/content', label: 'Contenido' },
+    review: { path: '/staff/review', label: 'Revisión de contenido' },
+    game: { path: '/staff/game', label: 'Gestión del juego' },
+    moderation: { path: '/staff/moderation', label: 'Moderación' },
+    support: { path: '/staff/support', label: 'Soporte' }
 };
 
 // Rol -> secciones permitidas, según la matriz del servidor:
 //   access_manager: cuentas, solicitudes y docentes (área access).
 //   auditor: lee cuentas y solicitudes (access, solo lectura) y usa la auditoría (área audit).
 //   analyst: métricas anónimas (área analytics).
-// Los demás roles (contenido, juego, moderación, soporte) aún no tienen paneles ni endpoints.
+//   content_manager: escribe y envía actividades (área content, /api/staff/content) y atiende los
+//     reportes escalados (/api/staff/reports). Ambas cosas viven en su única sección, "content".
+//   content_reviewer: aprueba o rechaza lo enviado (área content); sección "review".
+//   game_manager: reglas de XP, alias y reto diario (área game, /api/staff/game).
+//   moderator: reportes de tipo inappropriate (/api/staff/reports).
+//   support: reportes de tipo error (/api/staff/reports).
 const ROLE_SECTIONS = {
     access_manager: ['access'],
     auditor: ['access', 'audit'],
-    analyst: ['analytics']
+    analyst: ['analytics'],
+    content_manager: ['content'],
+    content_reviewer: ['review'],
+    game_manager: ['game'],
+    moderator: ['moderation'],
+    support: ['support']
 };
 
 export const ROLE_LABELS = {
