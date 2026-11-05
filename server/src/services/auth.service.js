@@ -256,8 +256,15 @@ async function login({ username, password }) {
     );
     if (rows.length === 0) {
         // Equaliza el tiempo de respuesta: sin esta llamada, no encontrar al usuario
-        // es mas rapido que comparar un hash y permite enumerar cuentas.
+        // es mas rapido que comparar un hash y permite enumerar cuentas. Tambien se hace el
+        // mismo trabajo que una cuenta real que falla: una escritura de contador (aqui una
+        // consulta equivalente) y la fila de auditoria. Si solo la cuenta existente auditara,
+        // la diferencia de milisegundos delataria que el usuario existe.
         await timingSafeCheckPlatform(password);
+        await pool.query('SELECT 1');
+        await audit.record({
+            actorType: 'system', action: 'user.login', target: username.slice(0, 100), outcome: 'denied'
+        });
         throw new AuthError('Usuario o contrasena incorrectos.', 401);
     }
 
@@ -282,7 +289,7 @@ async function login({ username, password }) {
         // Los intentos fallidos quedan en el registro de auditoria (diseno §5.2).
         await audit.record({
             actorType: user.role, actorId: user.id, actorRole: user.role,
-            action: 'user.login', outcome: 'denied'
+            action: 'user.login', target: username.slice(0, 100), outcome: 'denied'
         });
         throw new AuthError('Usuario o contrasena incorrectos.', 401);
     }
