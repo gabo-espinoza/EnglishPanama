@@ -1,7 +1,8 @@
 # Entrega de backend — punto de partida para el resto del equipo
 
 **Estado:** rama `feat/backend-hardening-daniel`, basada en `origin/main` (`c4eca4a`,
-lo desplegado el 22-oct-2026). Sin push ni merge. Cambios locales únicamente.
+lo desplegado el 22-oct-2026). **Publicada en `origin`**; PR #26 en borrador hacia
+`develop` e issue #27 abierto. Sin fusionar y sin desplegar. Ver sección 6.
 **Backend completo:** incluye tambien las fases B y C (modulos 6 al 9 del diseno),
 implementadas segun `docs/specs/staff-fase-b.md` (propuesta para revision del equipo).
 **Alcance:** autenticación y usuarios · actividades, corrección, XP y niveles ·
@@ -30,7 +31,7 @@ figuren ahí.
 | Reto diario | Califica la respuesta en servidor, 10 XP solo si es correcta, `409` si ya se completó, **fecha en UTC**, **límite de 10 intentos por estudiante y día** | PR #22; `docs/api.md` |
 | Panel docente | `/teacher/class`, `/students`, `/difficult-topics`, `PUT /class/grade` (una vez, `GRADE_LOCKED`); **declarar el grado queda en auditoría** | PDF diseño §4.1 |
 | Modo demo | `POST /demo/advance-day` con `DEMO_MODE=true`, incremento **atómico**, auditado y con límite de 30/día | PDF diseño §5.7 |
-| Pruebas | 14 archivos de pruebas sin base de datos, **66 pruebas en verde** (27 archivos en total); payloads SQLi/XSS, TOTP, anti-replay, XP, ranking, fecha UTC, ciclo de contenido y Fase C | PDF diseño §5.6/§5.8 |
+| Pruebas | 14 archivos sin base de datos (**66 pruebas**) y, con MySQL 8 local, la suite completa de **27 archivos: 238 pruebas, 237 aprobadas, 0 fallidas, 1 omitida**. Ver sección 6 | PDF diseño §5.6/§5.8 |
 | Documentación | `docs/api.md`, `docs/security.md`, `docs/backend.md`, `server/README.md`, `server/env.example` al día | — |
 
 ---
@@ -116,7 +117,7 @@ Eso es exactamente la parte que sigue (ver seccion 3).
 - Las pruebas automáticas nuevas están en `server/tests/`: `day`, `xp.service`,
   `answers`, `answers-shape`, `display-name`, `totp`, `totp-replay`, `ranking`,
   `security-inputs`. Se corren con `npm test` sin necesidad de MySQL.
-- Pendiente: `npm audit`, pruebas dinámicas y XSS en campos de contenido.
+- `npm audit` ya se ejecutó (4 → 2 vulnerabilidades, ver sección 6). Quedan pendientes las 29 casillas del checklist de pentest y las pruebas de navegador.
 
 ### Infraestructura / líder técnico (Gabriel)
 **Orden obligatorio antes de fusionar a `main`:**
@@ -171,3 +172,61 @@ node --check src/**/*.js # sintaxis
 Cambios verificados: 59 archivos (modificados y nuevos, en dos commits), sin `.env`, sin secretos en
 el repositorio, sin push ni merge. El clon de trabajo del autor
 (`feat/security-phase2`) no se tocó.
+
+---
+
+## 6. Cierre y verificación final (5 de noviembre de 2026)
+
+Esta sección se añade sin modificar el contrato de las secciones 1 a 5, que sigue
+siendo la referencia para los demás equipos.
+
+### 6.1. Estado en GitHub
+
+- Rama `feat/backend-hardening-daniel` publicada en `origin`.
+- **PR #26** abierto en **borrador** hacia `develop`, estado `MERGEABLE`.
+- **Issue #27** abierto con el traspaso a frontend, QA y líder técnico.
+- `main` (`c4eca4a`) y `develop` (`03f1cae`) sin cambios: **no hay merge ni despliegue**.
+  `develop` es idéntico a `main` (0 commits de diferencia), así que la rama basada en
+  `main` no deja trabajo fuera del PR.
+- No se modificó `.env` real ni se versionaron secretos; `server/env.example` es la
+  plantilla (se añadió `DB_PORT=3306`).
+
+### 6.2. Verificación con MySQL 8 local
+
+Se levantó MySQL 8 en un contenedor Docker **sin datos de producción** y se aplicaron
+`schema.sql`, `staff.sql`, las 9 migraciones y `audit.sql` sobre dos bases separadas,
+más los seeds del repositorio. Resultado real, con el runner nativo `node:test` y sin
+`--test-force-exit`:
+
+| Verificación | Resultado |
+|---|---|
+| Archivos de prueba | 27 de 27, código de salida 0 |
+| Pruebas | 238 (237 aprobadas, 0 fallidas, 1 omitida) |
+| Migraciones en MySQL 8 | 9 archivos, 0 errores |
+| Tablas | 14 en `englishpanama` y `audit_log` en `englishpanama_audit` |
+
+### 6.3. Correcciones aplicadas en el cierre
+
+- `migrations/phase5-content-review.sql`: duplicar las comillas internas del `ENUM`
+  dentro del `SET @sql`. Sin esto MySQL 8 devolvía `ERROR 1064` y la migración no
+  aplicaba. **Es obligatorio usar esta versión corregida en la VM-BD.**
+- `src/config/db.js` y `src/config/auditDb.js`: respetar `DB_PORT` (antes se ignoraba).
+- `tests/mfa-platform.test.js` y `tests/session.test.js`: cerrar el pool de auditoría
+  en el hook final; sin eso el archivo no terminaba.
+- `tests/session.test.js` y `tests/demo-accounts.test.js`: no reutilizar el mismo código
+  TOTP dentro de la ventana de 30 s. El anti-replay (`mfa_last_counter`) rechaza la
+  repetición correctamente; eran las pruebas las que debían limpiar el contador entre
+  escenarios, **no** el backend el que debía debilitarse.
+- `server/package-lock.json`: `npm audit fix --package-lock-only` redujo las
+  vulnerabilidades de **4 a 2**. Las 2 restantes (`tar` y `@mapbox/node-pre-gyp`,
+  dependencias de instalación de `bcrypt`) requieren `npm audit fix --force` (cambio
+  de versión mayor) y quedan documentadas, **no aplicadas**.
+
+### 6.4. Orden obligatorio antes de fusionar (sin cambios respecto de la sección 3)
+
+1. Aplicar en la **VM-BD**, con la versión corregida: `phase5-content-review.sql`,
+   `phase6-totp-replay.sql` y revisar `phase6-hardening.sql`.
+2. Verificar `.env`: `NODE_ENV`, `JWT_SECRET`, `STAFF_JWT_SECRET`, `STAFF_MFA_KEY`
+   (32 bytes en base64), `AUDIT_DB_*`, `DB_PORT` y `DEMO_MODE=false`.
+3. Revisar y fusionar el PR #26; recién entonces `deploy.yml` despliega a `main`.
+4. Frontend: las 5 pantallas de gestión. QA: las 29 casillas de pentest.

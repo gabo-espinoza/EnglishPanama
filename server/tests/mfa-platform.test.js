@@ -78,6 +78,8 @@ test.after(async () => {
     }
     server.close();
     try { await pool.end(); } catch { /* sin conexiones */ }
+    // El login con MFA abre el pool de auditoria: si no se cierra, el archivo no termina.
+    try { await require('../src/config/auditDb').closeAuditPool(); } catch { /* sin conexiones */ }
 });
 
 function call(method, url, { token, body } = {}) {

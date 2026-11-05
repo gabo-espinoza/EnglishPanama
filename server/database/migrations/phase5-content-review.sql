@@ -14,7 +14,7 @@ SET NAMES utf8mb4;
 SET @sql := IF(
     (SELECT COUNT(*) FROM information_schema.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'activities' AND COLUMN_NAME = 'status') = 0,
-    'ALTER TABLE activities ADD COLUMN status ENUM('draft','in_review','published','archived') NOT NULL DEFAULT ''published''',
+    'ALTER TABLE activities ADD COLUMN status ENUM(''draft'',''in_review'',''published'',''archived'') NOT NULL DEFAULT ''published''',
     'DO 0');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
