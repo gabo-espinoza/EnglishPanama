@@ -69,7 +69,7 @@ async function createTeacher({ mfaSecret = null } = {}) {
     );
     created.users.push(res.insertId);
     const token = jwt.sign({ id: res.insertId, role: 'teacher', tv: 0 }, process.env.JWT_SECRET, { expiresIn: '10m' });
-    return { id: res.insertId, username, token };
+    return { id: res.insertId, username, token, secret: mfaSecret };
 }
 
 async function createStudent(teacherId, { hidden = false, xp = 0 } = {}) {

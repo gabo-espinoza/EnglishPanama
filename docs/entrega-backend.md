@@ -126,8 +126,8 @@ Eso es exactamente la parte que sigue (ver seccion 3).
    (estado del contenido, `content_reports`, `alias_hidden`). **Sin esta migracion
    las consultas de estudiantes fallan**, porque filtran por `status = 'published'`.
 2. Aplicar `server/database/migrations/phase6-totp-replay.sql` en la **VM-BD**
-   (agrega `mfa_last_counter` a `users` y `staff_accounts`). El código degrada sin
-   romperse si la columna falta, pero el anti-replay no actúa.
+   (agrega `mfa_last_counter` a `users` y `staff_accounts`). Es obligatoria: el código
+   falla cerrado, y sin la columna el login con MFA responde 500.
 3. Revisar `server/database/migrations/phase6-hardening.sql`: el índice de
    `activities.level` es seguro; las tres restricciones `UNIQUE` están
    **comentadas** y traen `SELECT` de verificación previa. Ejecutarlos solo si no

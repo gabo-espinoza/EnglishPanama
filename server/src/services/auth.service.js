@@ -139,10 +139,11 @@ function codeMatches(encryptedSecret, code) {
 
 // Anti-replay del segundo factor (diseno §5.2, pendiente conocido del PR #3).
 // Un unico UPDATE condicional hace la comprobacion y el registro atomicos: si dos
-// peticiones llegan con el mismo codigo, solo una ve affectedRows = 1. Si la
-// columna aun no existe (migracion phase6-totp-replay.sql sin aplicar) se mantiene
-// la verificacion TOTP clasica: el codigo sigue siendo valido por HMAC y el login
-// nunca se rompe; solo se pierde la proteccion contra reuso.
+// peticiones llegan con el mismo codigo, solo una ve affectedRows = 1.
+// Falla CERRADO: si el UPDATE da error (por ejemplo, falta la migracion
+// phase6-totp-replay.sql, que es parte obligatoria del despliegue) el error se propaga,
+// la peticion responde 500 y el codigo NO se acepta. Nunca se degrada en silencio a un
+// TOTP sin anti-replay.
 async function consumePlatformTotp(userId, encryptedSecret, code) {
     let secret;
     try {
@@ -152,16 +153,11 @@ async function consumePlatformTotp(userId, encryptedSecret, code) {
     }
     const counter = totp.matchCounter(secret, code);
     if (counter === null) return false;
-    try {
-        const [result] = await pool.query(
-            'UPDATE users SET mfa_last_counter = ? WHERE id = ? AND (mfa_last_counter IS NULL OR mfa_last_counter < ?)',
-            [counter, userId, counter]
-        );
-        return result.affectedRows === 1;
-    } catch (err) {
-        console.error('[mfa] no se pudo registrar el contador TOTP:', err.message);
-        return true;
-    }
+    const [result] = await pool.query(
+        'UPDATE users SET mfa_last_counter = ? WHERE id = ? AND (mfa_last_counter IS NULL OR mfa_last_counter < ?)',
+        [counter, userId, counter]
+    );
+    return result.affectedRows === 1;
 }
 
 class AuthError extends Error {

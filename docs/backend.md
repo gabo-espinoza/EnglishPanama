@@ -165,8 +165,9 @@ alias ocultos del ranking y pool del reto diario. El contrato completo esta en
   defecto `published` deja el contenido existente intacto.
 - `database/migrations/phase6-totp-replay.sql`: agrega `mfa_last_counter` a `users`
   y `staff_accounts` para el anti-replay del TOTP. **Aplicar antes** de desplegar el
-  codigo que la consulta. El codigo degradea a verificacion clasica si la columna
-  aun no existe, asi que el login no se rompe.
+  codigo que la consulta. El codigo **falla cerrado**: sin la columna, el login con
+  MFA responde 500 (nunca acepta el codigo sin anti-replay), asi que la migracion es
+  obligatoria.
 - `database/migrations/phase6-hardening.sql`: indice en `activities.level` y
   unicidades propuestas. Trae `SELECT` de verificacion previa: no aplicar sin
   revisar duplicados.
