@@ -489,10 +489,11 @@ export default function StudentHome() {
                                     {ranking && ranking.length > 0 && (
                                         <ul className="mt-5 divide-y divide-blue-50 overflow-hidden rounded-2xl border-2 border-blue-100 bg-white">
                                             {ranking.map((student, index) => {
-                                                const isMe = student.alias === profile.alias;
+                                                // El servidor marca la fila propia (un alias oculto llega como 'Jugador oculto' para todos).
+                                                const isMe = student.isMe === true;
                                                 return (
                                                     <li
-                                                        key={student.alias}
+                                                        key={student.position}
                                                         aria-current={isMe ? 'true' : undefined}
                                                         className={`flex items-center justify-between gap-3 p-3 sm:p-4 ${isMe ? 'border-l-4 border-l-blue-600 bg-blue-50' : ''}`}
                                                     >

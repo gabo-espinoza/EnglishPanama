@@ -15,7 +15,7 @@ async function getClassRanking(studentId) {
     const teacherId = studentRows[0].teacherId;
 
     const [rows] = await pool.query(
-        `SELECT u.username AS alias, s.avatar, s.xp, s.alias_hidden AS aliasHidden
+        `SELECT s.user_id AS studentId, u.username AS alias, s.avatar, s.xp, s.alias_hidden AS aliasHidden
          FROM students s
          JOIN users u ON u.id = s.user_id
          WHERE s.teacher_id = ?
@@ -23,14 +23,18 @@ async function getClassRanking(studentId) {
         [teacherId]
     );
 
-    return buildRanking(rows);
+    return buildRanking(rows, studentId);
 }
 
 // Funcion pura (sin base) para poder probar el orden y que no se filtren datos.
 // El SQL ya ordena por xp DESC, username ASC; aqui solo se asignan posiciones.
-function buildRanking(rows) {
+// `isMe` marca la fila del estudiante autenticado (se calcula aqui, con el id, porque un
+// alias oculto se muestra como 'Jugador oculto' para todos, incluido uno mismo: el cliente
+// no puede reconocerse por el alias). El id nunca sale en la respuesta.
+function buildRanking(rows, viewerId) {
     return rows.map((row, index) => ({
         position: index + 1,
+        isMe: viewerId !== undefined && viewerId !== null && row.studentId === viewerId,
         alias: row.aliasHidden ? 'Jugador oculto' : row.alias,
         avatar: row.avatar,
         xp: row.xp,
