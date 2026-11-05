@@ -5,7 +5,8 @@ const pool = require('../config/db');
 const AppError = require('../utils/AppError');
 const audit = require('./audit.service');
 const { parseId } = require('../utils/ids');
-const { getSetting } = require('./settings.service');
+const { getSetting, getDemoDayOffset } = require('./settings.service');
+const { addDaysUtc, toDateOnlyUtc } = require('../utils/day');
 
 const RULE_KEYS = {
     xpPerCorrect: 'rule_xp_per_correct',
@@ -156,6 +157,20 @@ async function addDailyChallenge(actor, { questionId, position }) {
 
 async function removeDailyChallenge(actor, id) {
     const n = parseId(id, 'El reto');
+    // daily_completions tiene ON DELETE CASCADE hacia el reto: borrarlo hoy eliminaria los
+    // registros de quienes ya lo completaron y podrian repetirlo y cobrar el XP otra vez.
+    // Mientras haya completados de hoy (con el mismo dia efectivo que usa el reto diario,
+    // incluido el desplazamiento del modo demo) el reto no se puede quitar.
+    const today = toDateOnlyUtc(addDaysUtc(new Date(), await getDemoDayOffset()));
+    const [done] = await pool.query(
+        'SELECT 1 FROM daily_completions WHERE challenge_id = ? AND completed_on >= ? LIMIT 1',
+        [n, today]
+    );
+    if (done.length > 0) {
+        throw new AppError(
+            'Ese reto ya fue completado hoy; podras quitarlo manana.', 409, 'CHALLENGE_COMPLETED_TODAY'
+        );
+    }
     const [result] = await pool.query('DELETE FROM daily_challenges WHERE id = ?', [n]);
     if (result.affectedRows === 0) throw new AppError('El reto no existe.', 404);
     await audit.record({
