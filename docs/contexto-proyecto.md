@@ -45,18 +45,18 @@ Documento de traspaso para retomar el trabajo en otra sesión o con otra persona
 
 **Producción hoy:** `main` en `c4eca4a` (despliegue del 22 de octubre). Migraciones `prod-upgrade-all`, `phase3` y `phase4` aplicadas; 12 actividades de ejemplo. **`phase5-content-review.sql` y `phase6-totp-replay.sql` se aplicaron el 6 de noviembre de 2026** (con respaldo previo `~/backup-pre-phase5-20261106-1352.sql` en la VM-BD): las 12 actividades de ejemplo quedaron `published` y el código desplegado hoy sigue funcionando (API en línea). Siguen siendo obligatorias antes del release, y ya están hechas.
 
-**PR abiertos (todos hacia `develop`, pendientes de mergear):**
+**Mergeados a `develop` el 6 de noviembre de 2026** (`develop` aún no está en `main`; no se desplegó nada):
 
-| PR | Qué es | Base |
-|---|---|---|
-| #28 | Hallazgos bloqueantes del #26: alcance de los reportes por rol, límite por cuenta, reglas de juego parciales y atómicas, anti-replay que falla cerrado, bloqueo y anti-replay en `mfa/setup` y `mfa/confirm`, auditoría de login fallido sin diferencia de tiempos, `isMe` en el ranking, ids estrictos | `develop` |
-| #29 | Guía en PDF y scripts `setup-test-db.sh` y `.ps1` | `develop` |
-| #30 | `schema.sql` y `staff.sql` con la estructura final (hallazgo B1) | `develop` |
-| #31 | Las cinco pantallas de gestión (`/staff/content`, `/staff/review`, `/staff/game`, `/staff/moderation`, `/staff/support`) y `GET /staff/game/questions` | #28 |
-| #32 | El día del reto diario pasa a hora de Panamá (UTC−5) | #28 |
-| #33 | La regla `xpPerLevel` se usa también en ranking, perfil y lista del docente | #28 |
+| PR | Qué es |
+|---|---|
+| #28 | Hallazgos bloqueantes del #26: alcance de los reportes por rol, límite por cuenta, reglas de juego parciales y atómicas, anti-replay que falla cerrado, bloqueo y anti-replay en `mfa/setup` y `mfa/confirm`, auditoría de login fallido sin diferencia de tiempos, `isMe` en el ranking, ids estrictos (mergeado con merge commit porque otros tres PR estaban apilados sobre su rama) |
+| #29 | Guía en PDF y scripts `setup-test-db.sh` y `.ps1` |
+| #30 | `schema.sql` y `staff.sql` con la estructura final (hallazgo B1) |
+| #33 | La regla `xpPerLevel` se usa también en ranking, perfil y lista del docente |
+| #32 | El día del reto diario pasa a hora de Panamá (UTC−5) |
+| #31 | Las cinco pantallas de gestión (`/staff/content`, `/staff/review`, `/staff/game`, `/staff/moderation`, `/staff/support`) y `GET /staff/game/questions` |
 
-Orden sugerido: #28 primero (los demás se retargan solos a `develop`); #29 y #30 son independientes. Los PR sobre la base #28 tocan algunos archivos en común (`game.service.js`, `docs/api.md`) y pueden pedir resolver conflictos menores.
+Suite completa sobre `develop` con todo mergeado: **286 pruebas, 286 pasan, 0 fallan**. Siguiente paso: el release `develop` → `main` (sección 9).
 
 **Cuentas de prueba existentes en producción:** gestión `gabriel.accesos` (gestor de accesos) y `ep26.auditor` (auditor); docentes `docente.prueba` y `usuario.docente` (con grado 3 declarado); estudiantes `alumno.prueba` y `prueba.lista`. Hay que decidir si se conservan o se borran.
 
@@ -92,7 +92,7 @@ Orden sugerido: #28 primero (los demás se retargan solos a `develop`); #29 y #3
 
 ## 9. Pendientes
 
-1. **Revisar y mergear** #28, #29, #30, #32, #33 y #31 (orden de la sección 5).
+1. ~~Mergear #28 a #33~~ **Hecho el 6 de noviembre.**
 2. ~~Aplicar `phase5` y `phase6-totp-replay`~~ **Hecho el 6 de noviembre.** Queda revisar `phase6-hardening.sql` (solo su índice simple; **no** habilitar `uq_activity`) y, cuando ya no haga falta, borrar el respaldo `backup-pre-phase5-*.sql` de la VM-BD.
 3. **Verificar la `.env` de la VM-APP** (`NODE_ENV`, `JWT_SECRET`, `STAFF_JWT_SECRET`, `STAFF_MFA_KEY` de 32 bytes en base64, `AUDIT_DB_*`, `DEMO_MODE=false`) y decidir las **3 decisiones abiertas de `docs/specs/staff-fase-b.md`** (el archivo está en la rama `docs/spec-fase-b`, sin PR).
 4. **Release `develop` → `main`** (merge commit). **Desplegar entre las 00:00 y las 19:00 hora de Panamá**: quien completó el reto entre las 19:00 y la medianoche ese día podrá completarlo una vez más (detalle en `docs/migraciones-produccion.md` §16).
