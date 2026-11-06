@@ -13,11 +13,12 @@ const listAliases = wrap(() => game.listAliases());
 const setAliasHidden = wrap((req) => game.setAliasHidden(
     req.staff, req.params.studentId, (req.body || {}).hidden
 ));
+const listQuestions = wrap((req) => game.listQuestions(req.query));
 const listDailyChallenges = wrap(() => game.listDailyChallenges());
 const addDailyChallenge = wrap((req) => game.addDailyChallenge(req.staff, req.body), 201);
 const removeDailyChallenge = wrap((req) => game.removeDailyChallenge(req.staff, req.params.id));
 
 module.exports = {
-    getRules, updateRules, listAliases, setAliasHidden,
+    getRules, updateRules, listAliases, setAliasHidden, listQuestions,
     listDailyChallenges, addDailyChallenge, removeDailyChallenge
 };
