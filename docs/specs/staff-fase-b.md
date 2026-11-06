@@ -1,6 +1,6 @@
 # Spec — Cuentas de gestión, Fase B (contenido y flujo de revisión)
 
-Estado: **implementado en el backend (PR #26, #28) y en el cliente (PR #31), con las tres decisiones abiertas tomadas provisionalmente como propone este spec; pendiente de aprobación del líder técnico** (sección 10). Continúa [`staff-fase-a.md`](staff-fase-a.md). Cubre los roles `content_manager` y `content_reviewer`, y deja ajustado el alcance de la Fase C con las decisiones tomadas el 26 de octubre.
+Estado: **implementado en el backend (PR #26, #28) y en el cliente (PR #31), con las tres decisiones abiertas **resueltas el 6 de noviembre de 2026**: se aprueba que el gestor archive directamente, se decide que solo el autor modifique su borrador, y el orden ya está cumplido** (sección 10). Los ajustes de código que se desprenden de las secciones 10 y 11 van en un PR aparte. Continúa [`staff-fase-a.md`](staff-fase-a.md). Cubre los roles `content_manager` y `content_reviewer`, y deja ajustado el alcance de la Fase C con las decisiones tomadas el 26 de octubre.
 
 ## 1. Decisiones ya tomadas
 
@@ -158,7 +158,7 @@ Las tres decisiones se implementaron **con la opción que proponía este spec**,
 
 Nota: hoy `archived` es **terminal** (no hay endpoint `restore`). Si se mantiene la decisión, conviene agregar un `restore` o permitir crear una revisión desde una archivada.
 
-- [ ] Aprobado: el gestor archiva directamente.
+- [x] **Aprobado (6 de noviembre de 2026):** el gestor archiva directamente. Esto permite retirar rápido una actividad errónea o reportada, incluso de otro autor.
 - [ ] Rechazado: exigir aprobación del revisor.
 
 ### 10.2 Quién puede editar un borrador
@@ -171,7 +171,7 @@ Nota: hoy `archived` es **terminal** (no hay endpoint `restore`). Si se mantiene
 | **Si se rechaza** | Comprobar `author_id = actor.id` en `updateActivity`, `addQuestion`, `updateQuestion`, `deleteQuestion`, `deleteActivity`, `submit` y `withdraw`, con 403, y actualizar la pantalla. |
 
 - [ ] Aprobado: cualquier gestor edita cualquier borrador.
-- [ ] Rechazado: solo el autor.
+- [x] **Rechazado (6 de noviembre de 2026):** solo el autor modifica lo que subió (editar, preguntas, borrar, enviar y retirar). Cualquier gestor puede **archivar** y **crear una revisión** de lo publicado. El revisor solo aprueba o rechaza. Se implementa en un PR aparte (`NOT_AUTHOR` 403); hasta entonces el código permite que cualquier gestor edite.
 
 ### 10.3 Orden de implementación
 
@@ -191,10 +191,15 @@ Detectadas al revisar el PR #26 y probar las pantallas en navegador (5 de noviem
 | 4 | Un reporte por persona y pregunta mientras esté abierto | Implementado para `activity_id` y `kind`; la comprobación no es atómica (no hay índice único) | Aceptable por ahora; un índice único requiere migración |
 | 5 | El pool del reto diario filtra por actividades publicadas | Además, `POST /staff/game/daily-challenges` rechaza preguntas de `sentence_order` (se responde con un solo texto) y duplicadas (PR #31) | Documentado en `docs/api.md`; sin acción |
 
-- [ ] Revisadas las diferencias 1 a 5 y asignado cada ajuste.
+- [x] Revisadas las diferencias 1 a 5 (6 de noviembre de 2026):
+  1. **Retirar de revisión: solo el autor.** El spec tenía razón; vale para todo lo que modifica un borrador (decisión 10.2). Se ajusta el código.
+  2. **El revisor lee cualquier actividad por id:** se mantiene a propósito, para poder consultar y retirar una anterior que esté errónea o haya sido reportada. El spec se corrige: el revisor puede leer cualquier estado.
+  3. **Alias del menor en los reportes:** lo ve `support` (y los docentes ven a sus propios estudiantes por su panel); no lo ven `moderator` ni `content_manager`. Se ajusta el servidor para devolverlo solo a `support`.
+  4. **Reporte único por persona y pregunta mientras esté abierto:** se agrega la lógica, de forma atómica y sin migración (bloqueo de la fila de quien reporta).
+  5. Sin acción.
 
 ## 12. Cómo aprobar
 
 1. Marca las casillas de las secciones 10 y 11 en este documento y haz el merge.
 2. Cualquier ajuste que no sea "mantener" se abre como issue o PR aparte, antes del release `develop` → `main`.
-3. Cuando esté aprobado, quita el estado "pendiente" de la cabecera.
+3. Estado: aprobado el 6 de noviembre de 2026 por el líder técnico.
