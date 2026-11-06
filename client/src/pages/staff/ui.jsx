@@ -71,18 +71,27 @@ export function useMounted() {
 // Carga de datos segura en StrictMode (bandera `active`, igual que las páginas existentes).
 // `load` es una función sin argumentos que devuelve la promesa (se vuelve a ejecutar cuando
 // cambia algo de `deps` o se llama a reload()). Ante un 401 cierra la sesión de staff.
-// Devuelve { status: 'loading' | 'ok' | 'error', data, error, reload }. Mientras recarga conserva
-// `data` anterior, así la tabla no parpadea; muestra el esqueleto solo si `data` es null.
+// Devuelve { status: 'loading' | 'ok' | 'error', data, error, reload }. Con reload() conserva el
+// `data` anterior mientras recarga, así la lista no parpadea tras una acción. Cuando cambia algo
+// de `deps` (otro filtro, otra actividad) descarta el `data` anterior: nunca se muestran filas del
+// filtro previo. Si un reload() falla, `data` conserva el último valor junto con status 'error'.
+// El esqueleto se muestra solo si `data` es null.
 export function useAsync(load, deps = []) {
     const { handleAuthError } = useStaff();
     const [state, setState] = useState({ status: 'loading', data: null, error: '' });
     const [reloadKey, setReloadKey] = useState(0);
     const loadRef = useRef(load);
     loadRef.current = load;
+    const depsRef = useRef(deps);
 
     useEffect(() => {
         let active = true;
-        setState((prev) => ({ ...prev, status: 'loading', error: '' }));
+        const depsChanged = depsRef.current.length !== deps.length
+            || deps.some((value, i) => !Object.is(value, depsRef.current[i]));
+        depsRef.current = deps;
+        setState((prev) => (depsChanged
+            ? { status: 'loading', data: null, error: '' }
+            : { ...prev, status: 'loading', error: '' }));
         loadRef.current()
             .then((data) => {
                 if (active) setState({ status: 'ok', data, error: '' });
@@ -90,7 +99,8 @@ export function useAsync(load, deps = []) {
             .catch((err) => {
                 if (!active) return;
                 if (handleAuthError(err)) return;
-                setState({ status: 'error', data: null, error: errorMessage(err) });
+                // Conserva el último `data` conocido (si lo hay) para que un reload fallido no vacíe la pantalla.
+                setState((prev) => ({ status: 'error', data: prev.data, error: errorMessage(err) }));
             });
         return () => {
             active = false;
@@ -151,7 +161,7 @@ export function Notice({ notice, onClose }) {
                 ok ? 'border-green-200 bg-green-50 text-green-700' : 'border-red-200 bg-red-50 text-red-700'
             }`}
         >
-            <span>{notice.text}</span>
+            <span className="min-w-0 break-words">{notice.text}</span>
             {onClose && (
                 <button type="button" onClick={onClose} aria-label="Cerrar aviso" className="shrink-0 text-xs underline">
                     Cerrar
@@ -188,7 +198,7 @@ export function StatusBadge({ value, map = {} }) {
 export function ConfirmPanel({ label = 'Confirmar acción', confirmText = 'Sí, confirmar', danger = false, busy = false, onConfirm, onCancel, children }) {
     return (
         <div role="alertdialog" aria-label={label} className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-4">
-            <div className="text-sm font-bold text-amber-900">{children}</div>
+            <div className="min-w-0 break-words text-sm font-bold text-amber-900">{children}</div>
             <div className="mt-3 flex flex-wrap gap-2">
                 <button type="button" onClick={onConfirm} disabled={busy} className={danger ? BTN_DANGER : BTN_PRIMARY}>
                     {busy ? 'Procesando...' : confirmText}

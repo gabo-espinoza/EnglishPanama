@@ -78,7 +78,9 @@ function QuestionItem({ question, index, gameType, editable, busy, onEdit, onDel
     const options = asArray(question.options).map(String);
     const parts = answerParts(question.correctAnswer);
     const isOrder = gameType === 'sentence_order';
-    const correctText = typeof question.correctAnswer === 'string' ? normalizeText(question.correctAnswer) : '';
+    // Mismo criterio que el servidor al calificar: sin tildes NO se igualan ("café" y "cafe" son distintas).
+    const hasSingleAnswer = typeof question.correctAnswer === 'string' || typeof question.correctAnswer === 'number';
+    const correctText = hasSingleAnswer ? normalizeText(question.correctAnswer) : null;
     return (
         <>
             <div className="flex flex-wrap items-start justify-between gap-2">
@@ -102,7 +104,7 @@ function QuestionItem({ question, index, gameType, editable, busy, onEdit, onDel
                     {options.map((option, i) => (
                         <li key={`${i}-${option}`} className="break-words">
                             {option}
-                            {normalizeText(option) === correctText && <span className="ml-2 font-bold text-green-700">(respuesta correcta)</span>}
+                            {correctText !== null && normalizeText(option) === correctText && <span className="ml-2 font-bold text-green-700">(respuesta correcta)</span>}
                         </li>
                     ))}
                 </ul>
@@ -117,7 +119,8 @@ export default function ActivityDetail({ id, initialNotice = null, onBack, onOpe
     const { token, id: myId, handleAuthError } = useStaff();
     const mounted = useMounted();
     const detail = useAsync(() => getContentActivity(token, id), [token, id]);
-    const activity = detail.data && String(detail.data.id) === String(id) ? detail.data : null;
+    // Si la carga falla se muestra el error (no un detalle viejo sobre el que las acciones ya no valen).
+    const activity = detail.status !== 'error' && detail.data && String(detail.data.id) === String(id) ? detail.data : null;
 
     const [busy, setBusy] = useState(false);
     const [notice, setNotice] = useState(initialNotice);
@@ -127,6 +130,8 @@ export default function ActivityDetail({ id, initialNotice = null, onBack, onOpe
     const [form, setForm] = useState(null);
     const [formErrors, setFormErrors] = useState({});
     const headingRef = useRef(null);
+    const questionsHeadingRef = useRef(null);
+    const prevStatusRef = useRef(null);
 
     // Los datos del formulario se sincronizan cuando cambia la fila de la actividad (cargar, guardar),
     // no cuando solo se recargan las preguntas: así no se pierden cambios sin guardar.
@@ -140,6 +145,24 @@ export default function ActivityDetail({ id, initialNotice = null, onBack, onOpe
     useEffect(() => {
         if (loadedId !== null && headingRef.current) headingRef.current.focus();
     }, [loadedId]);
+
+    // Si la actividad deja de ser borrador (enviada, retirada, recargada con otro estado) se cierra la
+    // edición de preguntas, y si el botón que se usó desapareció, el foco pasa al título.
+    const currentStatus = activity ? activity.status : null;
+    useEffect(() => {
+        const previous = prevStatusRef.current;
+        prevStatusRef.current = currentStatus;
+        if (currentStatus === null || currentStatus === previous) return;
+        if (currentStatus !== 'draft') {
+            setEditing(null);
+            setDeletingQuestion(null);
+        }
+        if (previous !== null && headingRef.current) headingRef.current.focus();
+    }, [currentStatus]);
+
+    function focusQuestions() {
+        if (mounted.current && questionsHeadingRef.current) questionsHeadingRef.current.focus();
+    }
 
     // Ejecuta una acción del servidor: un solo envío a la vez, aviso con el resultado real y
     // recarga de datos. Devuelve el mensaje de error ('' si salió bien o si venció la sesión).
@@ -204,7 +227,10 @@ export default function ActivityDetail({ id, initialNotice = null, onBack, onOpe
                 : updateContentQuestion(token, id, editing, payload)),
             { okText: editing === 'new' ? 'Pregunta agregada.' : 'Pregunta guardada.' }
         );
-        if (!message && mounted.current) setEditing(null);
+        if (!message && mounted.current) {
+            setEditing(null);
+            focusQuestions();
+        }
         return message;
     }
 
@@ -217,7 +243,8 @@ export default function ActivityDetail({ id, initialNotice = null, onBack, onOpe
                 after: (created) => onOpen(created.id, 'Se creó el borrador de la revisión. Ya puedes editarlo.')
             }),
             delete: () => perform(() => deleteContentActivity(token, id), { after: () => onBack('Borrador borrado.') }),
-            saveDetails
+            saveDetails,
+            leave: () => onBack()
         };
         kinds[pending]();
     }
@@ -228,11 +255,13 @@ export default function ActivityDetail({ id, initialNotice = null, onBack, onOpe
         archive: '¿Archivar esta actividad publicada? Dejará de verse para los estudiantes.',
         revision: '¿Crear una revisión? Se copiará la actividad y sus preguntas a un borrador nuevo; la publicada no cambia.',
         delete: '¿Borrar este borrador con todas sus preguntas? No se puede deshacer.',
+        leave: 'Tienes cambios sin guardar en los datos de la actividad. Si vuelves a la lista se perderán.',
         saveDetails: 'Cambiar el tipo de juego puede dejar inválidas las preguntas ya creadas (por ejemplo, el orden de una oración). Revísalas después de guardar. ¿Guardar de todos modos?'
     };
     const pendingLabel = {
         submit: 'Enviar a revisión', withdraw: 'Retirar de revisión', archive: 'Archivar',
-        revision: 'Crear revisión', delete: 'Borrar borrador', saveDetails: 'Cambiar tipo de juego'
+        revision: 'Crear revisión', delete: 'Borrar borrador', saveDetails: 'Cambiar tipo de juego',
+        leave: 'Salir sin guardar'
     };
 
     const backButton = <button type="button" className={BTN_SECONDARY} onClick={() => onBack()}>← Volver a la lista</button>;
@@ -254,10 +283,28 @@ export default function ActivityDetail({ id, initialNotice = null, onBack, onOpe
     const dirty = isDraft && form ? !sameFields(form, activity) : false;
     const questions = Array.isArray(activity.questions) ? activity.questions : [];
     const submitBlocked = questions.length === 0 || dirty;
+    // Con cambios sin guardar en los datos, "Volver" pide confirmación en línea.
+    const guardedBack = (
+        <button type="button" className={BTN_SECONDARY} onClick={() => (dirty ? setPending('leave') : onBack())}>
+            ← Volver a la lista
+        </button>
+    );
 
     return (
         <div className="space-y-5">
-            {backButton}
+            {guardedBack}
+            {pending === 'leave' && (
+                <FocusedConfirm
+                    label={pendingLabel.leave}
+                    confirmText="Sí, salir sin guardar"
+                    danger
+                    busy={busy}
+                    onConfirm={runPending}
+                    onCancel={() => setPending(null)}
+                >
+                    {pendingText.leave}
+                </FocusedConfirm>
+            )}
 
             <section className={CARD} aria-labelledby="activity-title">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -322,7 +369,7 @@ export default function ActivityDetail({ id, initialNotice = null, onBack, onOpe
                         {dirty ? 'Guarda los cambios de los datos antes de enviar a revisión.' : 'Agrega al menos una pregunta para poder enviar a revisión.'}
                     </p>
                 )}
-                {pending && (
+                {pending && pending !== 'leave' && (
                     <div className="mt-3">
                         <FocusedConfirm
                             label={pendingLabel[pending]}
@@ -375,7 +422,7 @@ export default function ActivityDetail({ id, initialNotice = null, onBack, onOpe
 
             <section className={CARD} aria-labelledby="questions-title">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                    <h3 id="questions-title" className="text-lg font-display text-brand-600">Preguntas ({questions.length})</h3>
+                    <h3 id="questions-title" ref={questionsHeadingRef} tabIndex={-1} className="text-lg font-display text-brand-600 outline-none">Preguntas ({questions.length})</h3>
                     {isDraft && editing === null && (
                         <button type="button" className={BTN_PRIMARY} disabled={busy} onClick={() => setEditing('new')}>Agregar pregunta</button>
                     )}
@@ -430,7 +477,14 @@ export default function ActivityDetail({ id, initialNotice = null, onBack, onOpe
                                         confirmText="Sí, borrar"
                                         danger
                                         busy={busy}
-                                        onConfirm={() => perform(() => deleteContentQuestion(token, id, question.id), { okText: 'Pregunta borrada.' })}
+                                        onConfirm={async () => {
+                                            const message = await perform(
+                                                () => deleteContentQuestion(token, id, question.id),
+                                                { okText: 'Pregunta borrada.' }
+                                            );
+                                            // El botón "Borrar" desaparece con la pregunta: el foco pasa al encabezado.
+                                            if (!message) focusQuestions();
+                                        }}
                                         onCancel={() => setDeletingQuestion(null)}
                                     >
                                         ¿Borrar la pregunta {index + 1}? No se puede deshacer.

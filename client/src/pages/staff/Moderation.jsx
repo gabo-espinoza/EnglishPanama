@@ -121,6 +121,7 @@ function ReportCard({ report, pending, busy, disabled, onChoose, onConfirm, onCa
                         <button
                             key={decision}
                             type="button"
+                            id={`moderacion-${report.id}-${decision}`}
                             disabled={disabled}
                             onClick={() => onChoose(report.id, decision)}
                             className={decision === 'resolve' ? BTN_PRIMARY : BTN_SECONDARY}
@@ -162,8 +163,26 @@ export default function Moderation() {
     const [pending, setPending] = useState(null); // { id, decision }
     const [busy, setBusy] = useState(false);
     const [notice, setNotice] = useState(null);
+    const noticeRef = useRef(null);
+    const restoreRef = useRef(null); // botón que abrió la confirmación cancelada
 
     const list = useAsync(() => listReports(token, { status }), [token, status]);
+
+    // Al mostrar un resultado el foco pasa al aviso; al cancelar, vuelve al botón que abrió la confirmación.
+    useEffect(() => {
+        if (notice && noticeRef.current) noticeRef.current.focus();
+    }, [notice]);
+    useEffect(() => {
+        if (pending || !restoreRef.current) return;
+        const opener = document.getElementById(restoreRef.current);
+        restoreRef.current = null;
+        if (opener) opener.focus();
+    }, [pending]);
+
+    function cancel() {
+        if (pending) restoreRef.current = `moderacion-${pending.id}-${pending.decision}`;
+        setPending(null);
+    }
 
     function changeStatus(next) {
         if (busy || next === status) return;
@@ -212,7 +231,11 @@ export default function Moderation() {
                 Privacidad: las notas pueden contener texto escrito por menores de edad. No las copies ni las compartas fuera de la plataforma.
             </p>
 
-            <Notice notice={notice} onClose={() => setNotice(null)} />
+            {notice && (
+                <div ref={noticeRef} tabIndex={-1} className="outline-none">
+                    <Notice notice={notice} onClose={() => setNotice(null)} />
+                </div>
+            )}
 
             <div role="group" aria-label="Filtrar reportes por estado" className="flex flex-wrap gap-2">
                 {STATUS_FILTERS.map((filter) => (
@@ -256,7 +279,7 @@ export default function Moderation() {
                                 disabled={busy || pending !== null}
                                 onChoose={choose}
                                 onConfirm={confirm}
-                                onCancel={() => setPending(null)}
+                                onCancel={cancel}
                             />
                         ))}
                     </ul>

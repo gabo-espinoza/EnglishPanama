@@ -35,7 +35,7 @@ function initialOptions(gameType, question, nextKey) {
 }
 
 function initialCorrect(options, question) {
-    if (!question || typeof question.correctAnswer !== 'string') return -1;
+    if (!question || Array.isArray(question.correctAnswer) || question.correctAnswer == null) return -1;
     const target = normalizeText(question.correctAnswer);
     return options.findIndex((o) => normalizeText(o.text) === target);
 }
@@ -100,7 +100,7 @@ export default function QuestionForm({ idPrefix, gameType, question, busy, onSav
         } else if (!isOrder) {
             const normalized = options.map((o) => normalizeText(o.text));
             if (new Set(normalized).size !== normalized.length) {
-                found.options = 'Las opciones no pueden repetirse (se comparan sin tildes ni mayúsculas).';
+                found.options = 'Las opciones no pueden repetirse (se comparan sin distinguir mayúsculas ni espacios en los extremos).';
             }
         }
         if (!isOrder && correct < 0) found.answer = 'Marca cuál es la respuesta correcta.';

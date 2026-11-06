@@ -140,6 +140,7 @@ function ReportCard({ report, pending, busy, panelRef, onAsk, onCancel, onConfir
                             <button
                                 key={decision}
                                 type="button"
+                                id={`soporte-${report.id}-${decision}`}
                                 disabled={busy}
                                 onClick={() => onAsk(report.id, decision)}
                                 className={buttonClass(decision)}
@@ -179,6 +180,7 @@ export default function SupportStaff() {
     const [notice, setNotice] = useState(null);
     const panelRef = useRef(null);
     const noticeRef = useRef(null);
+    const restoreRef = useRef(null); // botón que abrió la confirmación cancelada
 
     const list = useAsync(() => listReports(token, { kind: 'error', status }), [token, status]);
 
@@ -190,6 +192,19 @@ export default function SupportStaff() {
     useEffect(() => {
         if (notice && noticeRef.current) noticeRef.current.focus();
     }, [notice]);
+
+    // Al cancelar una confirmación el foco vuelve al botón que la abrió.
+    useEffect(() => {
+        if (pending || !restoreRef.current) return;
+        const opener = document.getElementById(restoreRef.current);
+        restoreRef.current = null;
+        if (opener) opener.focus();
+    }, [pending]);
+
+    function cancel() {
+        if (pending) restoreRef.current = `soporte-${pending.id}-${pending.decision}`;
+        setPending(null);
+    }
 
     function changeStatus(next) {
         if (busy || next === status) return;
@@ -208,7 +223,11 @@ export default function SupportStaff() {
             await decideReport(token, id, decision);
             result = { type: 'ok', text: DECISIONS[decision].done };
         } catch (err) {
-            if (handleAuthError(err)) return;
+            if (handleAuthError(err)) {
+                // Si la pantalla sigue montada no debe quedar bloqueada.
+                if (mounted.current) setBusy(false);
+                return;
+            }
             result = { type: 'error', text: errorMessage(err, DECIDE_ERRORS_BY_STATUS, DECIDE_ERRORS_BY_CODE) };
             // Solo 404 y 409 indican que el reporte ya cambió; en otros errores la lista sigue igual.
             refresh = Boolean(err) && (err.status === 404 || err.status === 409);
@@ -269,7 +288,7 @@ export default function SupportStaff() {
                                 busy={busy}
                                 panelRef={panelRef}
                                 onAsk={(id, decision) => setPending({ id, decision })}
-                                onCancel={() => setPending(null)}
+                                onCancel={cancel}
                                 onConfirm={confirm}
                             />
                         ))}

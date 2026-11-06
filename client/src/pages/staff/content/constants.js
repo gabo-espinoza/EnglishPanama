@@ -49,8 +49,13 @@ export function textProblem(value, name, max, required = true) {
     return '';
 }
 
+// Espejo EXACTO de normalizeAnswer (server/src/utils/answers.js): quita espacios en los extremos y
+// pasa a minúsculas; NO quita tildes ("café" y "cafe" son respuestas distintas). Los arreglos se
+// unen con "|", como en las respuestas de sentence_order.
 export function normalizeText(value) {
-    return String(value ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+    if (value === null || value === undefined) return '';
+    if (Array.isArray(value)) return value.map(normalizeText).join('|');
+    return String(value).trim().toLowerCase();
 }
 
 // Errores por campo del formulario de actividad: { title?, passageText? }.

@@ -65,7 +65,8 @@ const ADD_ERRORS_BY_STATUS = {
 };
 const ADD_ERRORS_BY_CODE = {
     QUESTION_NOT_PUBLISHED: 'Solo se pueden agregar preguntas de actividades publicadas.',
-    QUESTION_ALREADY_IN_POOL: 'Esa pregunta ya está en el pool del reto diario.'
+    QUESTION_ALREADY_IN_POOL: 'Esa pregunta ya está en la lista de retos diarios.',
+    QUESTION_TYPE_NOT_SUPPORTED: 'Las preguntas de ordenar oraciones no sirven como reto diario: el estudiante responde eligiendo una sola opción.'
 };
 const REMOVE_ERRORS_BY_CODE = {
     CHALLENGE_COMPLETED_TODAY:
@@ -122,12 +123,17 @@ function RulesSection({ token, handleAuthError }) {
     const [submitted, setSubmitted] = useState(false);
     const [busy, setBusy] = useState(false);
     const [notice, setNotice] = useState(null);
+    // Reglas devueltas por el último guardado: si la recarga posterior falla se siguen mostrando.
+    const [savedRules, setSavedRules] = useState(null);
 
     useEffect(() => {
-        if (rules.data) setForm(rulesToForm(rules.data));
+        if (rules.data) {
+            setSavedRules(null);
+            setForm(rulesToForm(rules.data));
+        }
     }, [rules.data]);
 
-    const stored = rules.data;
+    const stored = savedRules || rules.data;
     const errors = {};
     RULE_FIELDS.forEach((f) => {
         errors[f.key] = ruleError(form[f.key], f);
@@ -154,6 +160,7 @@ function RulesSection({ token, handleAuthError }) {
                 dailyChallengeXp: Number(form.dailyChallengeXp)
             });
             if (!mounted.current) return;
+            setSavedRules(saved);
             setForm(rulesToForm(saved));
             setSubmitted(false);
             setNotice({ type: 'ok', text: 'Guardado. Las reglas nuevas ya están en vigor.' });
@@ -417,7 +424,7 @@ function ChallengesSection({ token, handleAuthError }) {
         try {
             await addDailyChallenge(token, question.id);
             if (!mounted.current) return;
-            setNotice({ type: 'ok', text: `Pregunta n.º ${question.id} agregada al pool del reto diario.` });
+            setNotice({ type: 'ok', text: `Pregunta n.º ${question.id} agregada a la lista de retos diarios.` });
             pool.reload();
         } catch (err) {
             if (handleAuthError(err)) return;
@@ -440,7 +447,7 @@ function ChallengesSection({ token, handleAuthError }) {
             await removeDailyChallenge(token, challenge.id);
             if (!mounted.current) return;
             setPending(null);
-            setNotice({ type: 'ok', text: `Reto n.º ${challenge.id} quitado del pool.` });
+            setNotice({ type: 'ok', text: `Reto n.º ${challenge.id} quitado de la lista de retos.` });
             pool.reload();
         } catch (err) {
             if (handleAuthError(err)) return;
@@ -448,7 +455,7 @@ function ChallengesSection({ token, handleAuthError }) {
             setPending(null);
             setNotice({
                 type: 'error',
-                text: errorMessage(err, { 404: 'El reto ya no existe. Se actualizó el pool.' }, REMOVE_ERRORS_BY_CODE)
+                text: errorMessage(err, { 404: 'El reto ya no existe. Se actualizó la lista de retos.' }, REMOVE_ERRORS_BY_CODE)
             });
             if (err && err.status === 404) pool.reload();
         } finally {
@@ -459,8 +466,9 @@ function ChallengesSection({ token, handleAuthError }) {
     return (
         <section aria-labelledby="game-challenges-title" className={`${CARD} space-y-6`}>
             <SectionTitle id="game-challenges-title" title="Retos diarios">
-                Cada día los estudiantes reciben una pregunta de este pool según el nivel de su clase. Solo llegan a los estudiantes
-                las preguntas de actividades publicadas.
+                Cada día los estudiantes reciben una pregunta de esta lista según el nivel de su clase. Solo llegan a los estudiantes
+                las preguntas de actividades publicadas. Sirven las preguntas de Memoria, Opción múltiple y Completar espacios
+                (el estudiante responde eligiendo una opción); las de Ordenar oraciones no se pueden usar.
             </SectionTitle>
 
             <Notice notice={notice} onClose={() => setNotice(null)} />
@@ -468,29 +476,29 @@ function ChallengesSection({ token, handleAuthError }) {
                 <ConfirmFocus>
                     <ConfirmPanel
                         label="Confirmar quitar reto"
-                        confirmText="Sí, quitar del pool"
+                        confirmText="Sí, quitar de la lista"
                         danger
                         busy={busyKey === `remove-${pending.id}`}
                         onConfirm={() => remove(pending)}
                         onCancel={() => setPending(null)}
                     >
-                        ¿Quitar del pool el reto n.º {pending.id} ("{pending.prompt}")? Si hoy ya lo completó algún estudiante,
+                        ¿Quitar de la lista de retos el reto n.º {pending.id} ("{pending.prompt}")? Si hoy ya lo completó algún estudiante,
                         el servidor no lo permitirá hasta mañana.
                     </ConfirmPanel>
                 </ConfirmFocus>
             )}
 
             <div>
-                <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-gray-500">Pool actual</h3>
-                {pool.status === 'loading' && !pool.data && <LoadingRows label="Cargando el pool..." />}
+                <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-gray-500">Retos actuales</h3>
+                {pool.status === 'loading' && !pool.data && <LoadingRows label="Cargando la lista de retos..." />}
                 {pool.status === 'error' && <ErrorBanner message={pool.error} onRetry={pool.reload} />}
                 {pool.status === 'ok' && poolRows.length === 0 && (
-                    <EmptyState text="El pool está vacío. Agrega preguntas con el buscador de abajo." />
+                    <EmptyState text="La lista de retos está vacía. Agrega preguntas con el buscador de abajo." />
                 )}
                 {poolRows.length > 0 && (
                     <div className="overflow-x-auto">
                         <table className="w-full min-w-[34rem] text-left text-sm">
-                            <caption className="sr-only">Preguntas del pool del reto diario</caption>
+                            <caption className="sr-only">Preguntas de la lista de retos diarios</caption>
                             <thead>
                                 <tr className="border-b-2 border-gray-100 text-xs uppercase tracking-wide text-gray-400">
                                     <th scope="col" className="py-2 pr-3">Pos.</th>
@@ -515,7 +523,7 @@ function ChallengesSection({ token, handleAuthError }) {
                                                 type="button"
                                                 className={BTN_SECONDARY}
                                                 disabled={busyKey !== null}
-                                                aria-label={`Quitar del pool el reto n.º ${c.id}`}
+                                                aria-label={`Quitar de la lista el reto n.º ${c.id}`}
                                                 onClick={() => setPending({ id: c.id, prompt: c.prompt })}
                                             >
                                                 Quitar
@@ -577,7 +585,7 @@ function ChallengesSection({ token, handleAuthError }) {
                 {questions.status === 'loading' && !questions.data && <LoadingRows label="Buscando preguntas..." />}
                 {questions.status === 'error' && <ErrorBanner message={questions.error} onRetry={questions.reload} />}
                 {questions.status === 'ok' && results.length === 0 && (
-                    <EmptyState text="No hay preguntas publicadas que coincidan con la búsqueda." />
+                    <EmptyState text="No hay preguntas publicadas y compatibles que coincidan con la búsqueda." />
                 )}
                 {results.length > 0 && (
                     <>
@@ -599,13 +607,13 @@ function ChallengesSection({ token, handleAuthError }) {
                                             </p>
                                         </div>
                                         {already ? (
-                                            <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-600">Ya está en el pool</span>
+                                            <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-600">Ya está en la lista</span>
                                         ) : (
                                             <button
                                                 type="button"
                                                 className={BTN_PRIMARY}
                                                 disabled={busyKey !== null}
-                                                aria-label={`Agregar al pool la pregunta n.º ${question.id}`}
+                                                aria-label={`Agregar a la lista de retos la pregunta n.º ${question.id}`}
                                                 onClick={() => add(question)}
                                             >
                                                 {busyKey === `add-${question.id}` ? 'Agregando...' : 'Agregar'}

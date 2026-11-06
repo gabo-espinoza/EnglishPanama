@@ -28,6 +28,7 @@ const CLOSED_MESSAGE = 'Este reporte ya fue atendido o ya no está en tu bandeja
 
 // Bloque "Reportes escalados a ti": lo que moderación y soporte enviaron al gestor de contenido.
 // El servidor solo devuelve los escalados; aquí solo se puede resolver o descartar.
+// Privacidad: reporterAlias es el usuario de acceso de un menor; llega en la respuesta pero NO se muestra.
 export default function EscalatedReports({ onOpenActivity }) {
     const { token, handleAuthError } = useStaff();
     const mounted = useMounted();
@@ -95,8 +96,7 @@ export default function EscalatedReports({ onOpenActivity }) {
                                 </div>
                                 <p className="mt-2 whitespace-pre-wrap break-words text-sm text-gray-700">{report.note || 'Sin nota'}</p>
                                 <p className="mt-1 text-xs text-gray-500">
-                                    Reportado por: {REPORTER_ROLE_LABELS[report.reporterRole] || report.reporterRole} «{report.reporterAlias}»
-                                    {report.reporterActive === false ? ' · Cuenta inactiva' : ''}
+                                    Reportado por: {REPORTER_ROLE_LABELS[report.reporterRole] || report.reporterRole}
                                 </p>
 
                                 {pending && pending.id === report.id ? (

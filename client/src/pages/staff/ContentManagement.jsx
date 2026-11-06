@@ -32,10 +32,9 @@ import {
 
 const EMPTY_FORM = { title: '', moduleSlug: 'vocabulary', gameType: 'memory', level: 'A1.1', passageText: '' };
 
-function CreateActivity({ onCreated, onCancel }) {
+function CreateActivity({ form, setForm, onCreated, onCancel }) {
     const { token, handleAuthError } = useStaff();
     const mounted = useMounted();
-    const [form, setForm] = useState(EMPTY_FORM);
     const [errors, setErrors] = useState({});
     const [serverError, setServerError] = useState('');
     const [busy, setBusy] = useState(false);
@@ -95,12 +94,12 @@ function CreateActivity({ onCreated, onCancel }) {
     );
 }
 
-function ActivityList({ flash, onFlashClose, onOpen }) {
+// Los filtros viven en la URL (?estado=&modulo=&nivel=): sobreviven a abrir una actividad y volver.
+function ActivityList({
+    flash, onFlashClose, onOpen, filters, onFilter, creating, setCreating, createForm, setCreateForm, onCreated
+}) {
     const { token, id: myId } = useStaff();
-    const [status, setStatus] = useState('');
-    const [moduleSlug, setModuleSlug] = useState('');
-    const [level, setLevel] = useState('');
-    const [creating, setCreating] = useState(false);
+    const { status, moduleSlug, level } = filters;
     const list = useAsync(
         () => listContentActivities(token, { status, module: moduleSlug, level }),
         [token, status, moduleSlug, level]
@@ -114,8 +113,13 @@ function ActivityList({ flash, onFlashClose, onOpen }) {
 
             {creating ? (
                 <CreateActivity
-                    onCreated={(newId) => onOpen(newId, 'Borrador creado. Agrega las preguntas y envíalo a revisión.')}
-                    onCancel={() => setCreating(false)}
+                    form={createForm}
+                    setForm={setCreateForm}
+                    onCreated={onCreated}
+                    onCancel={() => {
+                        setCreating(false);
+                        setCreateForm(EMPTY_FORM);
+                    }}
                 />
             ) : (
                 <div>
@@ -127,7 +131,7 @@ function ActivityList({ flash, onFlashClose, onOpen }) {
                 <h2 id="activities-title" className="mb-3 text-lg font-display text-brand-600">Actividades</h2>
                 <div className="mb-4 grid gap-3 sm:grid-cols-3">
                     <Field id="filter-status" label="Estado">
-                        <select id="filter-status" className={FIELD} value={status} onChange={(e) => setStatus(e.target.value)}>
+                        <select id="filter-status" className={FIELD} value={status} onChange={(e) => onFilter('estado', e.target.value)}>
                             <option value="">Todos</option>
                             {Object.entries(STATUS_MAP).map(([value, entry]) => (
                                 <option key={value} value={value}>{entry.label}</option>
@@ -135,7 +139,7 @@ function ActivityList({ flash, onFlashClose, onOpen }) {
                         </select>
                     </Field>
                     <Field id="filter-module" label="Módulo">
-                        <select id="filter-module" className={FIELD} value={moduleSlug} onChange={(e) => setModuleSlug(e.target.value)}>
+                        <select id="filter-module" className={FIELD} value={moduleSlug} onChange={(e) => onFilter('modulo', e.target.value)}>
                             <option value="">Todos</option>
                             {Object.entries(MODULE_LABELS).map(([value, label]) => (
                                 <option key={value} value={value}>{label}</option>
@@ -143,7 +147,7 @@ function ActivityList({ flash, onFlashClose, onOpen }) {
                         </select>
                     </Field>
                     <Field id="filter-level" label="Nivel">
-                        <select id="filter-level" className={FIELD} value={level} onChange={(e) => setLevel(e.target.value)}>
+                        <select id="filter-level" className={FIELD} value={level} onChange={(e) => onFilter('nivel', e.target.value)}>
                             <option value="">Todos</option>
                             {LEVELS.map((value) => (
                                 <option key={value} value={value}>{value}</option>
@@ -204,17 +208,53 @@ export default function ContentManagement() {
     const [searchParams, setSearchParams] = useSearchParams();
     // Aviso de una acción: `forList` indica si debe verse en la lista (p. ej. tras borrar un borrador).
     const [flash, setFlash] = useState(null);
+    // El formulario de creación vive aquí para no perderse al abrir una actividad y volver.
+    const [creating, setCreating] = useState(false);
+    const [createForm, setCreateForm] = useState(EMPTY_FORM);
     const rawId = searchParams.get('actividad');
     const activityId = rawId && /^\d+$/.test(rawId) ? rawId : null;
+    // Solo se aceptan valores conocidos: una URL manipulada no filtra por algo inexistente.
+    const pick = (key, allowed) => {
+        const value = searchParams.get(key);
+        return value && allowed.includes(value) ? value : '';
+    };
+    const filters = {
+        status: pick('estado', Object.keys(STATUS_MAP)),
+        moduleSlug: pick('modulo', Object.keys(MODULE_LABELS)),
+        level: pick('nivel', LEVELS)
+    };
 
     function open(id, message) {
         setFlash(message ? { type: 'ok', text: message, forList: false } : null);
-        setSearchParams({ actividad: String(id) });
+        setSearchParams((prev) => {
+            const next = new URLSearchParams(prev);
+            next.set('actividad', String(id));
+            return next;
+        });
     }
 
     function back(message) {
         setFlash(message ? { type: 'ok', text: message, forList: true } : null);
-        setSearchParams({});
+        setSearchParams((prev) => {
+            const next = new URLSearchParams(prev);
+            next.delete('actividad');
+            return next;
+        });
+    }
+
+    function setFilter(key, value) {
+        setSearchParams((prev) => {
+            const next = new URLSearchParams(prev);
+            if (value) next.set(key, value);
+            else next.delete(key);
+            return next;
+        }, { replace: true });
+    }
+
+    function created(newId) {
+        setCreating(false);
+        setCreateForm(EMPTY_FORM);
+        open(newId, 'Borrador creado. Agrega las preguntas y envíalo a revisión.');
     }
 
     return (
@@ -232,7 +272,18 @@ export default function ContentManagement() {
                     onOpen={open}
                 />
             ) : (
-                <ActivityList flash={flash && flash.forList ? flash : null} onFlashClose={() => setFlash(null)} onOpen={open} />
+                <ActivityList
+                    flash={flash && flash.forList ? flash : null}
+                    onFlashClose={() => setFlash(null)}
+                    onOpen={open}
+                    filters={filters}
+                    onFilter={setFilter}
+                    creating={creating}
+                    setCreating={setCreating}
+                    createForm={createForm}
+                    setCreateForm={setCreateForm}
+                    onCreated={created}
+                />
             )}
         </div>
     );

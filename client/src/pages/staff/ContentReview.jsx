@@ -26,6 +26,7 @@ import {
     useAsync,
     useMounted
 } from './ui';
+import { normalizeText } from './content/constants';
 
 const MODULE_LABELS = { vocabulary: 'Vocabulario', grammar: 'Gramática', reading: 'Lectura' };
 const GAME_LABELS = {
@@ -50,10 +51,6 @@ const NOTE_INVALID = /[\x00-\x1f\x7f<>]/;
 const STALE_MESSAGE = 'La actividad ya no está en revisión (otra persona la atendió o su autor la retiró). Se actualizó la cola.';
 const MISSING_MESSAGE = 'La actividad ya no existe. Se actualizó la cola.';
 
-function normalize(value) {
-    return String(value).normalize('NFD').replace(/\p{M}/gu, '').trim().toLowerCase();
-}
-
 function label(map, key) {
     return map[key] || key;
 }
@@ -65,7 +62,8 @@ function label(map, key) {
 function Question({ question, index, gameType }) {
     const options = Array.isArray(question.options) ? question.options : [];
     const ordered = gameType === 'sentence_order' && Array.isArray(question.correctAnswer);
-    const correctKey = ordered ? null : normalize(question.correctAnswer ?? '');
+    // Mismo criterio que el servidor al calificar (normalizeAnswer): sin tildes NO se igualan.
+    const correctKey = ordered ? null : normalizeText(question.correctAnswer);
     const correctText = ordered
         ? question.correctAnswer.join(' ')
         : String(question.correctAnswer ?? '');
@@ -82,7 +80,7 @@ function Question({ question, index, gameType }) {
             </p>
             <ul className="mt-1 space-y-1">
                 {options.map((option, i) => {
-                    const isCorrect = !ordered && normalize(option) === correctKey;
+                    const isCorrect = !ordered && normalizeText(option) === correctKey;
                     return (
                         <li
                             key={`${i}-${option}`}
@@ -225,35 +223,46 @@ function ReviewDetail({ activityId, onBack, onDone }) {
     const approveBtnRef = useRef(null);
     const rejectBtnRef = useRef(null);
     const noteRef = useRef(null);
+    const askRejectRef = useRef(null);
     const approvePanelRef = useRef(null);
     const rejectPanelRef = useRef(null);
 
+    // El foco va al título cuando el detalle ya se pintó (al montar todavía no hay actividad).
+    const loadedId = activity ? activity.id : null;
     useEffect(() => {
-        if (headingRef.current) headingRef.current.focus();
-    }, []);
+        if (loadedId !== null && headingRef.current) headingRef.current.focus();
+    }, [loadedId]);
 
     // Foco al abrir cada panel de acción.
     useEffect(() => {
+        // Foco en "Cancelar" (último botón): un Enter accidental no confirma la acción.
         if (mode === 'approve' && approvePanelRef.current) {
-            const button = approvePanelRef.current.querySelector('button');
-            if (button) button.focus();
+            const buttons = approvePanelRef.current.querySelectorAll('button');
+            if (buttons.length > 0) buttons[buttons.length - 1].focus();
         }
         if (mode === 'reject' && noteRef.current) noteRef.current.focus();
     }, [mode]);
 
     useEffect(() => {
         if (rejectReady && rejectPanelRef.current) {
-            const button = rejectPanelRef.current.querySelector('button');
-            if (button) button.focus();
+            const buttons = rejectPanelRef.current.querySelectorAll('button');
+            if (buttons.length > 0) buttons[buttons.length - 1].focus();
         }
     }, [rejectReady]);
 
+    // Los botones que abren los paneles no se deshabilitan mientras el panel está abierto: así el
+    // foco puede volver a ellos de inmediato al cancelar.
     function closePanels(returnTo) {
         setMode(null);
         setRejectReady(false);
         setNoteError('');
         setActionError('');
         if (returnTo && returnTo.current) returnTo.current.focus();
+    }
+
+    function cancelRejectConfirm() {
+        setRejectReady(false);
+        if (askRejectRef.current) askRejectRef.current.focus();
     }
 
     function openMode(next) {
@@ -360,7 +369,7 @@ function ReviewDetail({ activityId, onBack, onDone }) {
                         )}
                         {isInReview && ownActivity && (
                             <p className="rounded-xl border-2 border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-900">
-                                Tú escribiste esta actividad, así que no puedes aprobarla: el servidor lo rechazará.
+                                Tú escribiste esta actividad, así que no puedes aprobarla: debe hacerlo otra cuenta de revisión.
                             </p>
                         )}
                         {isInReview && !hasQuestions && (
@@ -381,7 +390,7 @@ function ReviewDetail({ activityId, onBack, onDone }) {
                                     ref={approveBtnRef}
                                     type="button"
                                     onClick={() => openMode('approve')}
-                                    disabled={busy || mode === 'approve'}
+                                    disabled={busy || ownActivity}
                                     className={BTN_PRIMARY}
                                 >
                                     Aprobar y publicar
@@ -390,7 +399,7 @@ function ReviewDetail({ activityId, onBack, onDone }) {
                                     ref={rejectBtnRef}
                                     type="button"
                                     onClick={() => openMode('reject')}
-                                    disabled={busy || mode === 'reject'}
+                                    disabled={busy}
                                     className={BTN_DANGER}
                                 >
                                     Rechazar con nota
@@ -445,7 +454,7 @@ function ReviewDetail({ activityId, onBack, onDone }) {
                                 </p>
                                 {noteError && <p role="alert" className="text-sm font-bold text-red-600">{noteError}</p>}
                                 <div className="flex flex-wrap gap-2">
-                                    <button type="button" onClick={askReject} disabled={busy || rejectReady} className={BTN_DANGER}>
+                                    <button ref={askRejectRef} type="button" onClick={askReject} disabled={busy} className={BTN_DANGER}>
                                         Rechazar actividad
                                     </button>
                                     <button type="button" onClick={() => closePanels(rejectBtnRef)} disabled={busy} className={BTN_SECONDARY}>
@@ -460,7 +469,7 @@ function ReviewDetail({ activityId, onBack, onDone }) {
                                             danger
                                             busy={busy}
                                             onConfirm={() => decide('reject')}
-                                            onCancel={() => setRejectReady(false)}
+                                            onCancel={cancelRejectConfirm}
                                         >
                                             ¿Rechazar la actividad n.º {activity.id} «{activity.title}»? Volverá a borrador y el gestor verá
                                             tu nota: «{note.trim()}».
@@ -514,6 +523,12 @@ export default function ContentReview() {
     const [levelFilter, setLevelFilter] = useState('');
     const [selectedId, setSelectedId] = useState(null);
     const [notice, setNotice] = useState(null);
+    const noticeRef = useRef(null);
+
+    // Tras una decisión el detalle se desmonta: el foco pasa al aviso con el resultado.
+    useEffect(() => {
+        if (notice && noticeRef.current) noticeRef.current.focus();
+    }, [notice]);
 
     const queue = useAsync(
         () => listContentActivities(token, { status: 'in_review', module: moduleFilter, level: levelFilter }),
@@ -551,7 +566,9 @@ export default function ContentReview() {
                 }
             />
 
-            <Notice notice={notice} onClose={() => setNotice(null)} />
+            <div ref={noticeRef} tabIndex={-1} className="outline-none">
+                <Notice notice={notice} onClose={() => setNotice(null)} />
+            </div>
 
             <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
                 <section aria-label="Cola de revisión" className={`${CARD} space-y-4 ${selectedId !== null ? 'hidden lg:block' : ''}`}>
