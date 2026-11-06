@@ -128,13 +128,27 @@ async function clearLock(user) {
     }
 }
 
-// Compara un codigo TOTP contra un secreto cifrado sin filtrar por que falla.
-function codeMatches(encryptedSecret, code) {
+// Anti-replay del segundo factor (diseno §5.2, pendiente conocido del PR #3).
+// Un unico UPDATE condicional hace la comprobacion y el registro atomicos: si dos
+// peticiones llegan con el mismo codigo, solo una ve affectedRows = 1.
+// Falla CERRADO: si el UPDATE da error (por ejemplo, falta la migracion
+// phase6-totp-replay.sql, que es parte obligatoria del despliegue) el error se propaga,
+// la peticion responde 500 y el codigo NO se acepta. Nunca se degrada en silencio a un
+// TOTP sin anti-replay.
+async function consumePlatformTotp(userId, encryptedSecret, code) {
+    let secret;
     try {
-        return totp.verifyToken(mfaCrypto.decrypt(encryptedSecret), code);
+        secret = mfaCrypto.decrypt(encryptedSecret);
     } catch {
         return false;
     }
+    const counter = totp.matchCounter(secret, code);
+    if (counter === null) return false;
+    const [result] = await pool.query(
+        'UPDATE users SET mfa_last_counter = ? WHERE id = ? AND (mfa_last_counter IS NULL OR mfa_last_counter < ?)',
+        [counter, userId, counter]
+    );
+    return result.affectedRows === 1;
 }
 
 class AuthError extends Error {
@@ -159,7 +173,7 @@ function validateUsername(username) {
 }
 
 function validatePassword(password) {
-    if (!password) {
+    if (typeof password !== 'string' || !password) {
         throw new AuthError('La contrasena es obligatoria.');
     }
     if (password.length < 4) {
@@ -171,7 +185,9 @@ function validatePassword(password) {
 }
 
 async function registerStudent({ username, password, classCode }) {
-    if (!classCode) {
+    // Tipo y largo antes de usar metodos de String: un JSON con classCode numerico
+    // u objeto debe responder 400, no un 500 por TypeError.
+    if (typeof classCode !== 'string' || classCode.trim() === '' || classCode.length > 20) {
         throw new AuthError('Faltan datos: classCode es obligatorio.');
     }
     validateUsername(username);
@@ -179,7 +195,7 @@ async function registerStudent({ username, password, classCode }) {
 
     const [teacherRows] = await pool.query(
         'SELECT user_id FROM teachers WHERE class_code = ?',
-        [classCode.toUpperCase()]
+        [classCode.trim().toUpperCase()]
     );
     if (teacherRows.length === 0) {
         throw new AuthError('El codigo de docente no existe.', 404);
@@ -225,6 +241,9 @@ async function login({ username, password }) {
     if (!username || !password) {
         throw new AuthError('Faltan datos: username y password son obligatorios.');
     }
+    if (typeof username !== 'string' || typeof password !== 'string') {
+        throw new AuthError('Usuario o contrasena incorrectos.', 401);
+    }
     if (password.length > MAX_PASSWORD_LENGTH) {
         throw new AuthError('Usuario o contrasena incorrectos.', 401);
     }
@@ -237,8 +256,15 @@ async function login({ username, password }) {
     );
     if (rows.length === 0) {
         // Equaliza el tiempo de respuesta: sin esta llamada, no encontrar al usuario
-        // es mas rapido que comparar un hash y permite enumerar cuentas.
+        // es mas rapido que comparar un hash y permite enumerar cuentas. Tambien se hace el
+        // mismo trabajo que una cuenta real que falla: una escritura de contador (aqui una
+        // consulta equivalente) y la fila de auditoria. Si solo la cuenta existente auditara,
+        // la diferencia de milisegundos delataria que el usuario existe.
         await timingSafeCheckPlatform(password);
+        await pool.query('SELECT 1');
+        await audit.record({
+            actorType: 'system', action: 'user.login', target: username.slice(0, 100), outcome: 'denied'
+        });
         throw new AuthError('Usuario o contrasena incorrectos.', 401);
     }
 
@@ -260,6 +286,11 @@ async function login({ username, password }) {
         if (user.is_active) {
             await registerFailedAttempt(user);
         }
+        // Los intentos fallidos quedan en el registro de auditoria (diseno §5.2).
+        await audit.record({
+            actorType: user.role, actorId: user.id, actorRole: user.role,
+            action: 'user.login', target: username.slice(0, 100), outcome: 'denied'
+        });
         throw new AuthError('Usuario o contrasena incorrectos.', 401);
     }
 
@@ -332,9 +363,13 @@ async function verifyMfa({ mfaToken, totp: code }) {
         throw new AuthError('La sesion fue revocada. Vuelve a iniciar sesion.', 401);
     }
 
-    if (!codeMatches(user.mfa_secret_enc, code)) {
-        // El codigo incorrecto cuenta para el bloqueo de 3 intentos / 10 segundos.
+    if (!(await consumePlatformTotp(user.id, user.mfa_secret_enc, code))) {
+        // El codigo incorrecto (o ya usado) cuenta para el bloqueo de 3/10.
         await registerFailedAttempt(user);
+        await audit.record({
+            actorType: user.role, actorId: user.id, actorRole: user.role,
+            action: 'user.login.mfa', outcome: 'denied'
+        });
         throw new AuthError('Codigo incorrecto.', 401);
     }
 
@@ -346,12 +381,17 @@ async function verifyMfa({ mfaToken, totp: code }) {
 // usuario lo escanee. El secreto queda PENDIENTE: el MFA no se activa hasta confirmar.
 async function setupMfa({ userId, totp: code, enrollOnly = false }) {
     const [rows] = await pool.query(
-        'SELECT id, username, is_active, mfa_secret_enc FROM users WHERE id = ?',
+        'SELECT id, username, role, is_active, mfa_secret_enc, failed_attempts, locked_until, '
+        + '(locked_until > NOW()) AS is_locked FROM users WHERE id = ?',
         [userId]
     );
     const user = rows[0];
     if (!user || !user.is_active) {
         throw new AuthError('La cuenta no esta disponible.', 401);
+    }
+    // Mismo bloqueo 3 intentos / 10 s que el login: la cuenta bloqueada no puede probar codigos.
+    if (Number(user.is_locked) === 1) {
+        throw new AuthError('Demasiados intentos. Espera unos segundos.', 401);
     }
 
     // Un token de vinculacion solo sirve mientras la cuenta NO tiene MFA: no puede
@@ -362,8 +402,18 @@ async function setupMfa({ userId, totp: code, enrollOnly = false }) {
 
     // Si ya hay un segundo factor activo, para volver a vincular hay que demostrar
     // que se tiene el actual: asi una sesion robada no puede reemplazar el MFA.
-    if (user.mfa_secret_enc && !codeMatches(user.mfa_secret_enc, code)) {
-        throw new AuthError('Para volver a vincular, indica el codigo actual del autenticador.', 401);
+    // El codigo se CONSUME (anti-replay): uno ya usado no sirve para reemplazar el autenticador.
+    if (user.mfa_secret_enc) {
+        if (!(await consumePlatformTotp(user.id, user.mfa_secret_enc, code))) {
+            // El codigo TOTP incorrecto tambien cuenta para el bloqueo 3/10 (diseno §5.2).
+            await registerFailedAttempt(user);
+            await audit.record({
+                actorType: user.role, actorId: user.id, actorRole: user.role,
+                action: 'user.mfa.setup', outcome: 'denied'
+            });
+            throw new AuthError('Para volver a vincular, indica el codigo actual del autenticador.', 401);
+        }
+        await clearLock(user);
     }
 
     const secret = totp.generateSecret();
@@ -383,10 +433,14 @@ async function setupMfa({ userId, totp: code, enrollOnly = false }) {
 // contrasena.
 async function confirmMfa({ userId, totp: code, enrollOnly = false }) {
     const [rows] = await pool.query(
-        'SELECT id, role, token_version, mfa_secret_enc, mfa_pending_enc, (mfa_pending_expires_at > NOW()) AS pending_valid FROM users WHERE id = ?',
+        'SELECT id, role, token_version, mfa_secret_enc, mfa_pending_enc, failed_attempts, locked_until, (locked_until > NOW()) AS is_locked, (mfa_pending_expires_at > NOW()) AS pending_valid FROM users WHERE id = ?',
         [userId]
     );
     const user = rows[0];
+    // Bloqueo 3 intentos / 10 s, primero que todo, igual que en el login.
+    if (user && Number(user.is_locked) === 1) {
+        throw new AuthError('Demasiados intentos. Espera unos segundos.', 401);
+    }
     if (enrollOnly && user && user.mfa_secret_enc) {
         throw new AuthError('La cuenta ya tiene un autenticador vinculado.', 409);
     }
@@ -397,14 +451,41 @@ async function confirmMfa({ userId, totp: code, enrollOnly = false }) {
         await pool.query('UPDATE users SET mfa_pending_enc = NULL, mfa_pending_expires_at = NULL WHERE id = ?', [user.id]);
         throw new AuthError('La vinculacion expiro. Genera un codigo nuevo.', 401);
     }
-    if (!codeMatches(user.mfa_pending_enc, code)) {
+    // El codigo se consume (anti-replay): el contador es por cuenta y el tiempo es el mismo
+    // para el secreto pendiente y el activo, asi un codigo ya usado no vale para confirmar.
+    if (!(await consumePlatformTotp(user.id, user.mfa_pending_enc, code))) {
+        await registerFailedAttempt(user);
+        await audit.record({
+            actorType: user.role, actorId: user.id, actorRole: user.role,
+            action: 'user.mfa.confirm', outcome: 'denied'
+        });
         throw new AuthError('El codigo no coincide con el QR. Intenta de nuevo.', 401);
     }
+    await clearLock(user);
 
-    await pool.query(
-        'UPDATE users SET mfa_secret_enc = mfa_pending_enc, mfa_pending_enc = NULL, mfa_pending_expires_at = NULL WHERE id = ?',
-        [user.id]
-    );
+    // Transaccion con bloqueo de fila: dos confirmaciones simultaneas no pueden
+    // dejar el secreto activo a NULL despues de que la primera lo activo.
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+        const [pending] = await connection.query(
+            'SELECT mfa_pending_enc FROM users WHERE id = ? FOR UPDATE',
+            [user.id]
+        );
+        if (pending.length === 0 || !pending[0].mfa_pending_enc) {
+            throw new AuthError('No hay una vinculacion en curso.', 400);
+        }
+        await connection.query(
+            'UPDATE users SET mfa_secret_enc = mfa_pending_enc, mfa_pending_enc = NULL, mfa_pending_expires_at = NULL WHERE id = ?',
+            [user.id]
+        );
+        await connection.commit();
+    } catch (err) {
+        await connection.rollback();
+        throw err;
+    } finally {
+        connection.release();
+    }
 
     // Vinculacion obligatoria: el primer codigo correcto completa tambien el inicio de
     // sesion, para que el docente no tenga que volver a escribir sus datos.
@@ -514,6 +595,20 @@ async function setInitialPassword({ userId, newPassword, confirmPassword }) {
     });
 }
 
+// Cierra la sesion de verdad: sube token_version para que el JWT actual (y cualquier
+// otra sesion abierta de la cuenta) deje de ser aceptado por requireAuth. Seguimiento
+// pendiente de los PR #24 y #25, donde el cierre era solo del lado del navegador.
+async function logout({ userId }) {
+    const [rows] = await pool.query('SELECT role FROM users WHERE id = ?', [userId]);
+    const role = rows.length > 0 ? rows[0].role : 'user';
+    await pool.query('UPDATE users SET token_version = token_version + 1 WHERE id = ?', [userId]);
+    await audit.record({
+        actorType: role, actorId: userId, actorRole: role,
+        action: 'user.logout', outcome: 'ok'
+    });
+    return { loggedOut: true };
+}
+
 module.exports = {
     registerStudent,
     changePassword,
@@ -523,6 +618,7 @@ module.exports = {
     verifyMfa,
     setupMfa,
     confirmMfa,
+    logout,
     AuthError,
     MFA_CHALLENGE_TYP,
     MFA_ENROLL_TYP,

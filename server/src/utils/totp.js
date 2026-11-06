@@ -67,15 +67,23 @@ function generateToken(secret, timestamp = Date.now()) {
     return hotp(secret, counterFor(timestamp));
 }
 
-// Acepta una ventana de +/-1 paso (30 s) por desfase de reloj.
-function verifyToken(secret, token, window = 1, timestamp = Date.now()) {
+// Devuelve el contador (paso de 30 s) que genero el codigo, o null si no coincide.
+// Con el contador se puede aplicar anti-replay: el servidor recuerda el ultimo
+// contador aceptado por cuenta y rechaza cualquier codigo igual o anterior.
+function matchCounter(secret, token, window = 1, timestamp = Date.now()) {
     const candidate = String(token || '').trim();
-    if (!new RegExp(`^\\d{${DIGITS}}$`).test(candidate)) return false;
+    if (!new RegExp(`^\\d{${DIGITS}}$`).test(candidate)) return null;
     const counter = counterFor(timestamp);
     for (let i = -window; i <= window; i += 1) {
-        if (hotp(secret, counter + i) === candidate) return true;
+        if (hotp(secret, counter + i) === candidate) return counter + i;
     }
-    return false;
+    return null;
+}
+
+// Acepta una ventana de +/-1 paso (30 s) por desfase de reloj. Se conserva para
+// las rutas que solo necesitan validar el codigo (vinculacion, re-vinculacion).
+function verifyToken(secret, token, window = 1, timestamp = Date.now()) {
+    return matchCounter(secret, token, window, timestamp) !== null;
 }
 
 // URI para que el gestor escanee el codigo en su app de autenticacion.
@@ -85,4 +93,4 @@ function keyUri({ secret, label, issuer = 'English Panama' }) {
         + `?secret=${secret}&issuer=${enc(issuer)}&algorithm=SHA1&digits=${DIGITS}&period=${PERIOD}`;
 }
 
-module.exports = { generateSecret, generateToken, verifyToken, keyUri, PERIOD };
+module.exports = { generateSecret, generateToken, verifyToken, matchCounter, keyUri, PERIOD };

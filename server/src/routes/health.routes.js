@@ -9,7 +9,9 @@ router.get('/', async (req, res) => {
         await pool.query('SELECT 1');
         res.json({ status: 'ok', db: 'connected' });
     } catch (err) {
-        res.status(500).json({ status: 'error', db: 'unreachable', message: err.message });
+        // El detalle queda en el log interno: un 500 nunca expone la traza (docs/api.md).
+        console.error('[health] base de datos no disponible:', err.message);
+        res.status(500).json({ status: 'error', db: 'unreachable' });
     }
 });
 

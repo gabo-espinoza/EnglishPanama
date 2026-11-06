@@ -1,12 +1,50 @@
 const pool = require('../config/db');
 const AppError = require('../utils/AppError');
-const { progressForXp } = require('./xp.service');
+const { progressForXp, XP_PER_LEVEL } = require('./xp.service');
+const game = require('./game.service');
 const { levelForGrade } = require('../config/classLevels');
 
 // El avatar es un identificador corto (ej. "default", "zorro-1"); no se guarda
 // HTML ni rutas, para evitar inyeccion en el cliente.
 const AVATAR_PATTERN = /^[a-z0-9_-]{1,50}$/;
 const MAX_DISPLAY_NAME_LENGTH = 100;
+
+// Validacion pura del texto que escribe el docente en su perfil (diseno §5.6):
+// el backend no debe guardar caracteres de control ni marcado HTML. React escapa
+// la salida, pero la validacion se hace aqui, antes de escribir en la base.
+function validateDisplayName(value) {
+    if (typeof value !== 'string') {
+        throw new AppError('El nombre para mostrar no es valido.', 400);
+    }
+    const name = value.trim();
+    if (!name) {
+        throw new AppError('El nombre para mostrar es obligatorio.', 400);
+    }
+    if (name.length > MAX_DISPLAY_NAME_LENGTH) {
+        throw new AppError('El nombre para mostrar es demasiado largo.', 400);
+    }
+    if (/[\x00-\x1f\x7f<>]/.test(name)) {
+        throw new AppError('El nombre para mostrar tiene caracteres no permitidos.', 400);
+    }
+    return name;
+}
+
+// Funcion pura (sin base): arma el perfil del estudiante con el nivel segun `rules.xpPerLevel`.
+function buildStudentProfile(userId, student, rules = {}) {
+    const perLevel = rules.xpPerLevel ?? XP_PER_LEVEL;
+    return {
+        id: userId,
+        role: 'student',
+        alias: student.alias,
+        avatar: student.avatar,
+        xp: student.xp,
+        teacherId: student.teacherId,
+        classCode: student.classCode,
+        classGrade: student.classGrade ?? null,
+        classLevel: levelForGrade(student.classGrade),
+        ...progressForXp(student.xp, perLevel)
+    };
+}
 
 // Perfil del usuario autenticado. Cada quien ve solo lo suyo: nunca
 // password_hash ni datos de otros usuarios.
@@ -24,19 +62,9 @@ async function getProfile(userId, role) {
         if (rows.length === 0) {
             throw new AppError('El estudiante no existe.', 404);
         }
-        const student = rows[0];
-        return {
-            id: userId,
-            role: 'student',
-            alias: student.alias,
-            avatar: student.avatar,
-            xp: student.xp,
-            teacherId: student.teacherId,
-            classCode: student.classCode,
-            classGrade: student.classGrade ?? null,
-            classLevel: levelForGrade(student.classGrade),
-            ...progressForXp(student.xp)
-        };
+        // Una sola lectura de reglas por peticion.
+        const rules = await game.getRules();
+        return buildStudentProfile(userId, rows[0], rules);
     }
 
     if (role === 'teacher') {
@@ -90,13 +118,7 @@ async function updateProfile(userId, role, data) {
         if (body.displayName === undefined) {
             throw new AppError('No hay campos validos para actualizar (displayName).');
         }
-        const displayName = String(body.displayName).trim();
-        if (!displayName) {
-            throw new AppError('El nombre para mostrar es obligatorio.');
-        }
-        if (displayName.length > MAX_DISPLAY_NAME_LENGTH) {
-            throw new AppError('El nombre para mostrar es demasiado largo.');
-        }
+        const displayName = validateDisplayName(body.displayName);
         const [result] = await pool.query(
             'UPDATE teachers SET display_name = ? WHERE user_id = ?',
             [displayName, userId]
@@ -111,4 +133,4 @@ async function updateProfile(userId, role, data) {
     return getProfile(userId, role);
 }
 
-module.exports = { getProfile, updateProfile };
+module.exports = { getProfile, updateProfile, validateDisplayName, buildStudentProfile };

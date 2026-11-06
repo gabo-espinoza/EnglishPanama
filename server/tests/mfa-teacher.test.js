@@ -182,6 +182,9 @@ test('el token de vinculacion ya no sirve una vez vinculado el autenticador (409
 
 test('despues de vincular, el siguiente login pide el codigo (flujo normal de MFA)', async (t) => {
     if (!ready) { t.skip('sin MySQL o claves'); return; }
+    // El codigo de la vinculacion ya se consumio (anti-replay): se simula el codigo del
+    // siguiente intervalo reiniciando el contador, como hace session.test.js.
+    await pool.query('UPDATE users SET mfa_last_counter = NULL WHERE id = ?', [newTeacher.id]);
     const first = await (await login(newTeacher)).json();
     assert.strictEqual(first.mfaRequired, true);
     assert.ok(first.mfaToken && !first.token && !first.mfaSetupRequired);

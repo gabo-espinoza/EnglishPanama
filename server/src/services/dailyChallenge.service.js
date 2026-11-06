@@ -4,40 +4,23 @@ const { getDemoDayOffset } = require('./settings.service');
 const { progressForXp } = require('./xp.service');
 const { getClassLevelForStudent } = require('./classLevel.service');
 const { normalizeAnswer } = require('../utils/answers');
+const game = require('./game.service');
+const { effectiveDay } = require('../utils/day');
+const clock = require('../utils/clock');
 
 // XP que otorga completar el reto diario.
 const DAILY_CHALLENGE_XP = 10;
 // Largo maximo de la respuesta que se acepta (las opciones reales son cortas).
 const MAX_ANSWER_LENGTH = 200;
 
-function addDays(date, days) {
-    const copy = new Date(date.getTime());
-    copy.setDate(copy.getDate() + days);
-    return copy;
-}
-
-function toDateOnly(date) {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-}
-
-function dayOfYear(date) {
-    const startOfYear = new Date(date.getFullYear(), 0, 0);
-    const diff = date - startOfYear;
-    return Math.floor(diff / 86400000);
-}
-
-// Fecha "efectiva": la fecha real desplazada por el offset del modo demo.
+// Fecha "efectiva": la fecha de Panama (UTC-5) desplazada por el offset del modo demo.
 // Tanto el reto de hoy como la fecha de completado usan siempre esta fecha,
 // de modo que el modo demo mueve las dos cosas a la vez.
 // El conjunto de retos se filtra por el nivel de la clase del estudiante; sin grado o sin
 // retos de ese nivel el conjunto queda vacio y se responde igual que con el pool vacio.
 async function resolveTodayChallenge(studentId) {
     const offset = await getDemoDayOffset();
-    const effectiveDate = addDays(new Date(), offset);
-    const completedOn = toDateOnly(effectiveDate);
+    const { date: completedOn, dayOfYear } = effectiveDay(clock.now(), offset);
 
     const level = await getClassLevelForStudent(studentId);
     let poolRows = [];
@@ -47,7 +30,7 @@ async function resolveTodayChallenge(studentId) {
              FROM daily_challenges dc
              JOIN questions q ON q.id = dc.question_id
              JOIN activities a ON a.id = q.activity_id
-             WHERE a.level = ?
+             WHERE a.level = ? AND a.status = 'published'
              ORDER BY dc.position, dc.id`,
             [level]
         );
@@ -56,7 +39,7 @@ async function resolveTodayChallenge(studentId) {
         throw new AppError('No hay retos diarios configurados.', 404);
     }
 
-    const index = dayOfYear(effectiveDate) % poolRows.length;
+    const index = dayOfYear % poolRows.length;
     const challenge = poolRows[index];
 
     return { challenge, completedOn, offset };
@@ -130,7 +113,8 @@ async function completeDailyChallenge(studentId, answer) {
         return { correct: false };
     }
 
-    const xpEarned = DAILY_CHALLENGE_XP;
+    const rules = await game.getRules();
+    const xpEarned = rules.dailyChallengeXp;
 
     const connection = await pool.getConnection();
     try {
@@ -164,7 +148,10 @@ async function completeDailyChallenge(studentId, answer) {
 
         await connection.commit();
 
-        return { correct: true, completed: true, completedOn, xpEarned, totalXp, ...progressForXp(totalXp) };
+        return {
+            correct: true, completed: true, completedOn, xpEarned, totalXp,
+            ...progressForXp(totalXp, rules.xpPerLevel)
+        };
     } catch (err) {
         await connection.rollback();
         // Capa defensiva: si MySQL aborta por interbloqueo o espera excedida, pero otro envio ya

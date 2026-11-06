@@ -1,6 +1,14 @@
 -- English Panama - Esquema de base de datos (MVP)
 -- Motor: MySQL 8.x
--- Ejecutar sobre la base `englishpanama` ya creada en la VM de MySQL.
+-- Ejecutar sobre la base `englishpanama` ya creada en la VM de MySQL, y despues
+-- staff.sql (cuentas de gestion) y audit.sql (base de auditoria aparte).
+--
+-- Este archivo contiene la estructura FINAL: ya incluye todo lo que agregaron las
+-- migraciones phase2 a phase6 (bloqueo, MFA, anti-replay, cambio de contrasena,
+-- grado/nivel, ciclo de vida del contenido, reportes, alias oculto). Una base nueva
+-- NO necesita migraciones; estas solo sirven para actualizar una base ya existente.
+-- Las llaves foraneas hacia staff_accounts (activities, content_reports) quedan
+-- validas al cargar staff.sql, que debe ejecutarse a continuacion.
 
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
@@ -23,6 +31,7 @@ CREATE TABLE users (
     mfa_pending_enc       VARBINARY(255) NULL COMMENT 'Secreto TOTP en vinculacion, pendiente de confirmar con un codigo',
     mfa_pending_expires_at DATETIME NULL,
     created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    mfa_last_counter BIGINT UNSIGNED NULL DEFAULT NULL,
     UNIQUE KEY uq_users_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -42,6 +51,7 @@ CREATE TABLE students (
     teacher_id INT UNSIGNED NOT NULL,
     avatar     VARCHAR(50) NOT NULL DEFAULT 'default',
     xp         INT UNSIGNED NOT NULL DEFAULT 0,
+    alias_hidden TINYINT(1) NOT NULL DEFAULT 0,
     CONSTRAINT fk_students_user
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_students_teacher
@@ -69,9 +79,21 @@ CREATE TABLE activities (
     passage_text  TEXT NULL COMMENT 'Solo se usa en actividades del modulo Reading',
     level         ENUM('A1.1', 'A1.2', 'A1.3') NOT NULL DEFAULT 'A1.1' COMMENT 'Nivel de la actividad; el estudiante solo ve el de su clase',
     is_example    TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1 = actividad de ejemplo sembrada, no es contenido oficial',
+    status        ENUM('draft','in_review','published','archived') NOT NULL DEFAULT 'published',
+    author_id     INT UNSIGNED NULL,
+    reviewer_id   INT UNSIGNED NULL,
+    reviewed_at   TIMESTAMP NULL,
+    review_note   VARCHAR(500) NULL,
+    replaces_id   INT UNSIGNED NULL,
+    updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_activities_module
         FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE,
-    KEY idx_activities_module (module_id)
+    CONSTRAINT fk_activities_author FOREIGN KEY (author_id) REFERENCES staff_accounts(id),
+    CONSTRAINT fk_activities_reviewer FOREIGN KEY (reviewer_id) REFERENCES staff_accounts(id),
+    CONSTRAINT fk_activities_replaces FOREIGN KEY (replaces_id) REFERENCES activities(id) ON DELETE SET NULL,
+    KEY idx_activities_module (module_id),
+    KEY idx_activities_status (status),
+    KEY idx_activities_level (level)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE questions (
@@ -141,6 +163,31 @@ CREATE TABLE daily_completions (
     CONSTRAINT fk_daily_completions_challenge
         FOREIGN KEY (challenge_id) REFERENCES daily_challenges(id) ON DELETE CASCADE,
     UNIQUE KEY uq_daily_completions_student_day (student_id, completed_on)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ============================================================
+-- Reportes de contenido (errores / contenido inapropiado)
+-- ============================================================
+
+CREATE TABLE content_reports (
+    id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    kind          ENUM('error','inappropriate') NOT NULL,
+    activity_id   INT UNSIGNED NULL,
+    question_id   INT UNSIGNED NULL,
+    reporter_id   INT UNSIGNED NOT NULL,
+    reporter_role ENUM('student','teacher') NOT NULL,
+    note          VARCHAR(300) NULL,
+    status        ENUM('open','escalated','resolved','dismissed') NOT NULL DEFAULT 'open',
+    handled_by    INT UNSIGNED NULL,
+    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_reports_status (status),
+    KEY idx_reports_kind (kind),
+    KEY idx_reports_reporter (reporter_id, status),
+    CONSTRAINT fk_reports_activity FOREIGN KEY (activity_id) REFERENCES activities(id) ON DELETE SET NULL,
+    CONSTRAINT fk_reports_question FOREIGN KEY (question_id) REFERENCES questions(id) ON DELETE SET NULL,
+    CONSTRAINT fk_reports_reporter FOREIGN KEY (reporter_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_reports_handler FOREIGN KEY (handled_by) REFERENCES staff_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================================

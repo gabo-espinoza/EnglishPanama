@@ -56,8 +56,9 @@ y auditoria).
 | Escalada de privilegios (rol) | `requireRole(...)` protege cada grupo de rutas; el rol **se lee de la base** en cada peticion, no del token. |
 | XSS | El backend solo devuelve JSON; React escapa el texto por defecto. No se renderiza HTML crudo. |
 | Ver contenido de otro nivel | El filtro por nivel de la clase se aplica **en el servidor**, en la consulta SQL (`level = ?`), nunca en el cliente: listado, preguntas, intentos y reto diario usan el nivel que sale de la base (`classLevel.service.js`), no uno enviado por el cliente. |
-| Datos personales de menores | Los estudiantes se identifican con un alias; el ranking expone solo alias/avatar/XP/nivel. |
-| Reutilizacion de reto diario | Restriccion unica `(student_id, completed_on)` en la base; el duplicado responde `409`. |
+| Datos personales de menores | Los estudiantes se identifican con un alias; el ranking expone solo alias/avatar/XP/nivel. En los reportes, el usuario de acceso del reportante (`reporterAlias`) solo se devuelve al rol `support`; moderacion y gestor de contenido no lo reciben. |
+| Editar borradores ajenos | Solo el autor (`activities.author_id`) modifica su borrador; otro `content_manager` recibe `403 NOT_AUTHOR`, auditado como `denied`. |
+| Reutilizacion de reto diario | Restriccion unica `(student_id, completed_on)` en la base; el duplicado responde `409`. El "dia" es el de Panama (UTC-5, `utils/day.js`), calculado en el servidor de aplicaciones y enviado como parametro; no depende de la zona horaria de MySQL. |
 | Tokens falsificados | JWT firmado con `JWT_SECRET`; token invalido o expirado responde `401`. |
 | CORS abierto en produccion | Se puede restringir con la variable `CORS_ORIGIN` (lista de origenes permitidos). |
 | IP falsificada para evadir limites | `trust proxy` se activa solo con `TRUST_PROXY=true` (cuando hay Nginx delante). |
@@ -70,7 +71,7 @@ y auditoria).
 | Sesion de personal demasiado larga | El token de gestion dura **20 minutos** (contra 2 horas de estudiantes/docentes). |
 | Robo de contrasena | **MFA con TOTP** (6 digitos, ventana de +/- 30 s), obligatorio en cada login de personal. |
 | Fuga del secreto MFA | El secreto TOTP se guarda **cifrado** (AES-256-GCM) con `STAFF_MFA_KEY`; nunca en claro. |
-| Fuerza bruta sobre una cuenta de gestion | Tras **5 intentos fallidos** la cuenta se bloquea **15 minutos** (`locked_until`). |
+| Fuerza bruta sobre una cuenta de gestion | Tras **3 intentos fallidos** la cuenta se bloquea **10 segundos** (`locked_until`). |
 | Cuenta de gestion secuestrada | `requireStaff` revalida en cada peticion: la cuenta existe, esta `active`, su `token_version` coincide y el rol/area siguen vigentes. |
 | Un rol actua fuera de su area | Cada ruta de gestion exige `area` **y** `role` (`requireStaff({ area, roles })`). Ej.: un `access_manager` no puede leer la auditoria (`403`). |
 | Un solo administrador con todo el poder | Hay **8 roles** repartidos en 7 areas; **no existe** una cuenta "superadmin". El cambio de permisos requiere solicitar + aprobar por otra cuenta. |
@@ -146,9 +147,9 @@ Estas no dependen del codigo de la app y son clave antes de publicar:
 7. **Logs y monitoreo.** Alertas por picos de `401/403/429` y por accesos desde
    ubicaciones u horas inusuales (base para el plan de auditoria del documento de diseno).
 8. **Actualizar dependencias** con `npm audit` antes de cada entrega.
-9. **Tokens cortos para el personal.** Ya implementado: 20 minutos con MFA; se recomienda
-   el cambio de contrasena temporal en el primer ingreso del docente ya esta implementado
-   (ver seccion 2.2).
+9. **Tokens cortos para el personal.** Ya implementado: 20 minutos con MFA. El cambio
+   obligatorio de la contrasena temporal en el primer ingreso del docente tambien esta
+   implementado (ver seccion 2.2).
 
 ## 5. Checklist para la prueba de seguridad
 
@@ -186,14 +187,15 @@ Con `DEMO_MODE=false`, `TRUST_PROXY=false` y `CORS_ORIGIN` configurado, verifica
 - [ ] Solicitar un cambio sobre la propia cuenta -> `400`.
 - [ ] Intentar aprobar una solicitud ya resuelta -> `409`.
 - [ ] Suspender una cuenta y volver a usarla con su token: debe responder `401` de inmediato.
-- [ ] Cinco logins fallidos de una cuenta de gestion -> `401` (bloqueada 15 min).
+- [ ] Tres logins fallidos de una cuenta de gestion -> `401` (bloqueada 10 s).
 - [ ] Alterar un registro de la auditoria a mano -> `GET /api/staff/audit/verify` responde `ok:false`.
 
 ## 6. Riesgos conocidos y supuestos del MVP
 
-- El reto diario otorga XP al marcarse completado **una vez por dia**; no valida la
-  respuesta en ese endpoint (el contrato no envia respuesta). Impacto acotado por la
-  restriccion diaria. A futuro: pedir la respuesta y corregirla en el servidor.
+- El reto diario **ya califica la respuesta en el servidor** (`POST /daily-challenge/complete`
+  recibe `{ answer }`, compara con `normalizeAnswer` y solo otorga 10 XP si es correcta;
+  no revela la respuesta correcta). Ademas tiene un limite dedicado de 10 intentos por
+  estudiante y dia, para que un alumno no adivine entre 3 o 4 opciones por fuerza bruta.
 - La app de estudiantes/docentes mantiene solo **dos roles** (`student`, `teacher`). La
   base de gestion tiene **8 roles** (sembrados con 3 cuentas cada uno, 24 en total);
   `content_manager`, `content_reviewer`, `game_manager`, `moderator` y `support` tienen

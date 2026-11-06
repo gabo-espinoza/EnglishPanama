@@ -19,14 +19,19 @@ Authorization: Bearer <token>
 | Regla | Valor |
 |---|---|
 | XP por respuesta correcta | 5 |
-| XP por nivel | 100 |
-| Nivel a partir de XP | `nivel = floor(xp / 100) + 1` |
+| XP por nivel | 100 (valor por defecto; el gestor de juego puede cambiarlo con `xpPerLevel`) |
+| Nivel a partir de XP | `nivel = floor(xp / xpPerLevel) + 1` (con el valor por defecto, `floor(xp / 100) + 1`) |
 
 Ejemplo: 8 aciertos -> 40 XP; si el estudiante tenia 100 XP, queda con 140 XP y sube a nivel 2.
+
+El XP de una actividad se otorga **una sola vez por estudiante y actividad**: repetir
+`POST /activities/:id/attempts` sigue corrigiendo la respuesta, pero no vuelve a sumar XP
+ni a mover el ranking.
 
 Las respuestas que otorgan XP (intento de actividad y reto diario) y el ranking
 incluyen ademas los datos para pintar la **barra de progreso**: `xpIntoLevel`
 (XP dentro del nivel actual) y `xpForNextLevel` (XP que pide el siguiente nivel).
+Todos los endpoints que devuelven nivel (intento, reto diario, ranking, `/users/me` y la lista del docente) usan la regla `xpPerLevel` vigente, leida una vez por peticion.
 
 ## Formato de errores
 
@@ -66,7 +71,8 @@ Codigos usados: `400` (datos invalidos), `401` (sin token o token invalido),
 Las cuentas de **docente no se crean por registro**: las crea el gestor de accesos con
 `POST /staff/teachers`, y el docente recibe su cuenta ya creada (usuario, contrasena temporal y codigo de
 clase). Esta ruta responde siempre `403` con `{ "error": "El registro de docentes esta deshabilitado: ..." }`,
-sin crear nada. En el primer inicio de sesion el docente **debe crear su propia contrasena**
+sin crear nada. Tambien lleva el limite de intentos de autenticacion (`authLimiter`).
+En el primer inicio de sesion el docente **debe crear su propia contrasena**
 (`POST /auth/set-initial-password`, ver mas abajo) y despues vincula su autenticador (MFA obligatorio).
 La contrasena temporal deja de servir en cuanto la reemplaza.
 
@@ -170,15 +176,30 @@ autenticacion. Queda en la auditoria (`user.password.change`).
 **Errores:** `400` faltan datos, contrasena nueva invalida o igual a la actual; `401` sin sesion, contrasena
 actual incorrecta o cuenta bloqueada. El reto de MFA y el token de vinculacion no sirven aqui (`401`).
 
+### `POST /auth/logout` - sesion normal
+
+Cierra la sesion y **revoca el token en el servidor**: sube `token_version`, asi el JWT
+actual y cualquier otra sesion abierta de la cuenta dejan de ser aceptados por
+`requireAuth` (`401`). Body vacio.
+
+**Respuesta 200:** `{ "loggedOut": true }`. **Errores:** `401` sin sesion valida.
+
 ### MFA de plataforma (implementado)
 
 Segundo factor **TOTP** (RFC 6238): codigo de 6 digitos que cambia cada 30 segundos, generado por una
 app de autenticacion (Google Authenticator, Microsoft Authenticator, Aegis, 2FAS, FreeOTP...). Es
-**opcional para estudiantes** y **obligatorio para docentes**. Si un docente pierde el celular, el
+**opcional para estudiantes** y **obligatorio para docentes**. Un codigo ya usado se
+rechaza (anti-replay): el servidor guarda el ultimo contador TOTP aceptado por cuenta.
+Esto requiere la migracion `server/database/migrations/phase6-totp-replay.sql`, que debe
+aplicarse **antes** de desplegar este codigo. Si un docente pierde el celular, el
 gestor de accesos le reinicia el MFA (`POST /staff/teachers/:id/reset-mfa`) y debe vincular uno nuevo.
 
-Un codigo incorrecto cuenta para el bloqueo de 3 intentos / 10 segundos. Estas rutas tienen el limite
-de intentos de autenticacion.
+Un codigo TOTP incorrecto cuenta para el bloqueo de 3 intentos / 10 segundos en
+`POST /auth/login/mfa`, en `POST /auth/mfa/setup` (al volver a vincular) y en
+`POST /auth/mfa/confirm`. Con la cuenta bloqueada, esas dos rutas responden 401 sin mirar el
+codigo (igual que el login), y ambas consumen el contador TOTP: un codigo ya usado se rechaza.
+Todas estas rutas tienen ademas el limite de intentos de
+autenticacion por IP, y los intentos fallidos quedan registrados en la auditoria.
 
 #### `POST /auth/login/mfa` - publico
 
@@ -357,7 +378,7 @@ nivel o la clase no tiene grado: `La actividad no existe.`, comprobado antes de 
 
 ### `GET /daily-challenge` - Protegido, rol `student`
 
-Devuelve el reto de hoy (calculado por fecha + offset de modo demo) y si ya fue completado.
+Devuelve el reto de hoy (calculado por la fecha de **Panama, UTC-5** + offset de modo demo) y si ya fue completado.
 
 **Respuesta 200:**
 ```json
@@ -403,8 +424,15 @@ se devuelve, ni acertando ni fallando.
 pertenece a una actividad de ese nivel. Si el docente no ha declarado el grado, o no hay retos de ese nivel,
 `GET /daily-challenge` y `POST /daily-challenge/complete` responden `404` (`No hay retos diarios configurados.`).
 El reto de hoy se calcula como `pool[dayOfYear(fecha_efectiva) % total]`,
-donde `fecha_efectiva = hoy + offset_demo`. El mismo calculo se usa para la fecha
+donde `fecha_efectiva = hoy_en_Panama + offset_demo`. El mismo calculo se usa para la fecha
 de completado, de modo que el modo demo mueve las dos cosas a la vez.
+
+*Dia de Panama:* "hoy" es la fecha en `America/Panama` (UTC-5 fijo, sin horario de verano), no la fecha UTC:
+el reto cambia a las 00:00 de Panama (05:00 UTC). Un estudiante que completa el reto a las 22:00 de Panama no
+puede repetirlo a las 23:30, y si a las 00:30 del dia siguiente. La fecha se calcula en el servidor de
+aplicaciones (`utils/day.js`) y se envia a MySQL como parametro (`completed_on`, `DATE`); no depende de la zona
+horaria de la sesion de MySQL ni de `CURDATE()`. El campo `date` de `GET /daily-challenge` y `completedOn` de la
+respuesta de `POST /daily-challenge/complete` son esa fecha de Panama.
 
 ---
 
@@ -417,9 +445,14 @@ Devuelve el ranking de la clase del estudiante autenticado (por `teacher_id`), o
 **Respuesta 200:**
 ```json
 [
-  { "position": 1, "alias": "dani_88", "avatar": "default", "xp": 140, "level": 2, "xpIntoLevel": 40, "xpForNextLevel": 100 }
+  { "position": 1, "isMe": true, "alias": "dani_88", "avatar": "default", "xp": 140, "level": 2, "xpIntoLevel": 40, "xpForNextLevel": 100 }
 ]
 ```
+
+`isMe` (booleano) es `true` solo en la fila del estudiante autenticado. Un alias oculto por el
+gestor del juego se muestra como `"Jugador oculto"` para todos, **incluido el propio estudiante**,
+asi que el cliente debe usar `isMe` (no comparar el alias) para resaltar "Tu" y usar `position`
+como clave de lista (los alias ocultos se repiten). El id del estudiante nunca se expone.
 
 ---
 
@@ -657,6 +690,113 @@ Recorre la cadena de hashes del registro:
 ```json
 { "ok": true, "checked": 42 }
 ```
+
+---
+
+## Salud del servicio
+
+### `GET /health` - publico
+
+Comprueba que la API responde y que llega a la base de datos.
+
+**Respuesta 200:** `{ "status": "ok", "db": "connected" }`.
+**Respuesta 500:** `{ "status": "error", "db": "unreachable" }` (sin detalle interno:
+el error real queda solo en el log del servidor).
+
+---
+
+---
+
+## Fase B: Gestion de Contenidos (modulo 6)
+
+**Estado:** implementado en el backend. Requiere la migracion
+`server/database/migrations/phase5-content-review.sql` **antes** del despliegue.
+Base: `/api/staff/content`. Area `content`; separacion de funciones: el
+`content_manager` escribe y envia, el `content_reviewer` aprueba o rechaza.
+
+Ciclo de vida: `draft` -> `submit` -> `in_review` -> `approve` -> `published`
+-> `archive` -> `archived`. `reject` devuelve a `draft` con `note` obligatoria;
+`withdraw` retira de revision; `revision` copia una publicada a un borrador con
+`replaces_id` (al aprobarla, la original queda `archived` en la misma transaccion).
+**Los estudiantes solo ven `published`** (`/activities`, preguntas y reto diario).
+
+| Metodo y ruta | Rol | Que hace |
+|---|---|---|
+| `GET /activities?status=&module=&level=` | gestor, revisor | Lista (el revisor solo `in_review`/`published`) |
+| `GET /activities/:id` | gestor, revisor | Detalle con respuestas correctas |
+| `POST /activities` | gestor | Crea borrador (`moduleSlug`, `title`, `gameType`, `level`, `passageText`) |
+| `PUT /activities/:id` | gestor | Edita un borrador |
+| `POST /activities/:id/questions` | gestor | Agrega pregunta |
+| `PUT /activities/:id/questions/:qid` | gestor | Edita pregunta |
+| `DELETE /activities/:id/questions/:qid` | gestor | Borra pregunta |
+| `DELETE /activities/:id` | gestor | Borra un borrador |
+| `POST /activities/:id/submit` | gestor | `draft` -> `in_review` (exige preguntas validas) |
+| `POST /activities/:id/withdraw` | gestor | `in_review` -> `draft` |
+| `POST /activities/:id/revision` | gestor | Copia una publicada a borrador |
+| `POST /activities/:id/archive` | gestor | `published` -> `archived` |
+| `POST /activities/:id/approve` | revisor | `in_review` -> `published` (autor != revisor) |
+| `POST /activities/:id/reject` | revisor | `in_review` -> `draft` con `note` |
+
+Toda transicion usa una transaccion con `SELECT ... FOR UPDATE`; un estado
+invalido responde `409` con `code: "INVALID_STATE"`. Cada escritura queda en la
+auditoria (`content.*`, `target = activity:<id>`), incluidos los intentos
+denegados. La forma de `options`/`correct_answer` se valida en el servidor por
+tipo de juego (`memory`, `multiple_choice`, `sentence_order`, `fill_blank`).
+
+**Un borrador es de su autor.** Solo quien lo creo (`activities.author_id` = cuenta
+que llama) puede modificarlo: `PUT /activities/:id`, agregar/editar/borrar
+preguntas, `DELETE /activities/:id`, `submit` y `withdraw`. Cualquier otro
+`content_manager` recibe `403` con `code: "NOT_AUTHOR"` y el mensaje
+`Solo quien creo el borrador puede modificarlo.` (queda auditado como `denied`).
+Una actividad sin autor (`author_id` NULL, sembrada) no la edita nadie por estas
+rutas. Orden de las comprobaciones: existencia (`404`), estado (`409`
+`INVALID_STATE`), autoria (`403` `NOT_AUTHOR`), validacion del cuerpo. Quedan
+abiertos a **cualquier** `content_manager`: `archive` (el gestor archiva
+directamente; sirve para retirar una actividad erronea o reportada) y `revision`
+(el borrador nuevo tiene como autor a quien lo crea). `approve`/`reject` no
+cambian (`SAME_AUTHOR` si el revisor es el autor). Por decision de diseno, el
+`content_reviewer` puede **leer** cualquier actividad por id, en cualquier estado.
+
+## Fase C: Juego, Comunidad y Soporte (modulos 7, 8 y 9)
+
+### Reportes de contenido
+
+- `POST /api/reports` — estudiantes y docentes. Body `{ kind, activityId, questionId?, note? }`,
+  `kind` = `error` o `inappropriate`. Limite de 5 por cuenta y hora; un solo
+  reporte abierto o escalado por persona, tipo de reporte y objetivo (actividad +
+  pregunta, que puede ser nula); el duplicado responde `409` con
+  `code: "ALREADY_REPORTED"`. La comprobacion es atomica (transaccion que bloquea la
+  fila del reportante), asi peticiones simultaneas no crean dos. Al resolverse o
+  descartarse, se puede volver a reportar. Solo se puede reportar contenido `published`.
+- `GET /api/staff/reports?status=` — `support` ve `error`, `moderator` ve
+  `inappropriate` y `content_manager` ve los `escalated`. Nunca contrasenas ni
+  datos personales. `reporterAlias` (el usuario de acceso del reportante, que puede
+  ser un menor) solo se devuelve a `support`: para `moderator` y `content_manager`
+  la clave se **omite**. Todos reciben `reporterRole` y `reporterActive`.
+- `PATCH /api/staff/reports/:id` — `{ decision }`: `escalate`, `resolve` o
+  `dismiss` segun el rol.
+
+### Gestion del juego (`/api/staff/game`, area `game`, solo `game_manager`)
+
+| Metodo y ruta | Que hace |
+|---|---|
+| `GET /rules` | Reglas vigentes de XP |
+| `PUT /rules` | Edita `xpPerCorrect` (1-50), `xpPerLevel` (10-1000) y `dailyChallengeXp` (1-100). Es parcial: solo cambian las claves enviadas (enteros JSON; claves desconocidas o cuerpo vacio dan 400) y se guardan de forma atomica. Devuelve las reglas vigentes completas |
+| `GET /aliases` | Catalogo de alias del ranking |
+| `PUT /aliases/:studentId` | `{ hidden }` (booleano obligatorio; otro valor da 400) oculta un alias: el ranking muestra "Jugador oculto" y conserva la posicion |
+| `GET /daily-challenges` | Pool del reto diario |
+| `GET /questions` | Buscador de preguntas para armar el pool. Solo actividades **publicadas** y sin las de tipo `sentence_order` (no sirven como reto diario). Filtros opcionales `module` (`vocabulary`, `grammar`, `reading`), `level` (`A1.1`, `A1.2`, `A1.3`), `q` (texto contenido en la pregunta, sin distinguir mayusculas, hasta 100 caracteres) y `limit` (por defecto 50, maximo 100). Devuelve un arreglo de `{ id, activityId, activityTitle, module, level, gameType, text }`; nunca la respuesta correcta ni las opciones. Valores invalidos dan 400 |
+| `POST /daily-challenges` | `{ questionId, position? }` agrega una pregunta al pool. 404 si no existe; 409 `QUESTION_NOT_PUBLISHED` si su actividad no esta publicada; 409 `QUESTION_TYPE_NOT_SUPPORTED` si es de una actividad `sentence_order` (su respuesta es un orden y el reto diario se responde con una sola opcion; el buscador `GET /questions` tampoco las lista); 409 `QUESTION_ALREADY_IN_POOL` si ya está en la lista de retos diarios. La comprobacion y el alta son atomicas (transaccion que bloquea la fila de la pregunta) |
+| `DELETE /daily-challenges/:id` | Quita un reto del pool. Responde 409 `CHALLENGE_COMPLETED_TODAY` si alguien ya lo completo hoy (dia de Panama) (el borrado en cascada eliminaria esos registros y permitiria repetirlo) |
+
+Las reglas viven en `app_settings` y las consultan `activity.service.js`,
+`dailyChallenge.service.js` y `xp.service.js`; si no existen, se usan los
+valores originales (5 / 100 / 10).
+
+> **Nota de alcance:** los paneles del cliente (`/staff/content`, `/staff/review`,
+> `/staff/game`, `/staff/moderation`, `/staff/support`) ya existen en
+> `client/src/pages/staff/` y `ROLE_SECTIONS` en `client/src/pages/staff/StaffLayout.jsx`
+> ya los asigna a cada rol. El backend expone los contratos de esta seccion.
 
 ---
 
