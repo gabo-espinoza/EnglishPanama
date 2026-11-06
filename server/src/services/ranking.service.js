@@ -1,6 +1,7 @@
 const pool = require('../config/db');
 const AppError = require('../utils/AppError');
-const { progressForXp } = require('./xp.service');
+const { progressForXp, XP_PER_LEVEL } = require('./xp.service');
+const game = require('./game.service');
 
 // Ranking de la clase del estudiante autenticado.
 // Expone solo alias (username), avatar, XP y nivel: nunca nombres reales ni datos personales.
@@ -23,7 +24,9 @@ async function getClassRanking(studentId) {
         [teacherId]
     );
 
-    return buildRanking(rows, studentId);
+    // Una sola lectura de reglas por peticion (no por fila).
+    const rules = await game.getRules();
+    return buildRanking(rows, studentId, rules);
 }
 
 // Funcion pura (sin base) para poder probar el orden y que no se filtren datos.
@@ -31,14 +34,16 @@ async function getClassRanking(studentId) {
 // `isMe` marca la fila del estudiante autenticado (se calcula aqui, con el id, porque un
 // alias oculto se muestra como 'Jugador oculto' para todos, incluido uno mismo: el cliente
 // no puede reconocerse por el alias). El id nunca sale en la respuesta.
-function buildRanking(rows, viewerId) {
+// `rules.xpPerLevel` es la regla del gestor de juego; sin ella se usa el valor por defecto.
+function buildRanking(rows, viewerId, rules = {}) {
+    const perLevel = rules.xpPerLevel ?? XP_PER_LEVEL;
     return rows.map((row, index) => ({
         position: index + 1,
         isMe: viewerId !== undefined && viewerId !== null && row.studentId === viewerId,
         alias: row.aliasHidden ? 'Jugador oculto' : row.alias,
         avatar: row.avatar,
         xp: row.xp,
-        ...progressForXp(row.xp)
+        ...progressForXp(row.xp, perLevel)
     }));
 }
 
