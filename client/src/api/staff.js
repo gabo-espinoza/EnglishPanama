@@ -242,8 +242,9 @@ export function removeDailyChallenge(token, challengeId) {
 
 // support, moderator, content_manager. `filters`: status (open | escalated | resolved | dismissed)
 // y kind (solo el propio del rol; otro da 403). Devuelve un ARREGLO (máx. 200) de
-// { id, kind, activityId, questionId, reporterRole, reporterAlias, reporterActive, note, status,
-// createdAt, handledBy, activityTitle }. reporterAlias es el usuario de acceso de un menor: no se muestra.
+// { id, kind, activityId, questionId, reporterRole, reporterActive, note, status,
+// createdAt, handledBy, activityTitle } y, SOLO para support, reporterAlias (usuario de acceso de un
+// menor; moderator y content_manager no lo reciben y no debe mostrarse fuera de soporte).
 export function listReports(token, filters = {}) {
     return apiRequest(withQuery('/staff/reports', filters), { token });
 }

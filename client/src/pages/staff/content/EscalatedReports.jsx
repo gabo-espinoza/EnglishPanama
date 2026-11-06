@@ -28,7 +28,7 @@ const CLOSED_MESSAGE = 'Este reporte ya fue atendido o ya no está en tu bandeja
 
 // Bloque "Reportes escalados a ti": lo que moderación y soporte enviaron al gestor de contenido.
 // El servidor solo devuelve los escalados; aquí solo se puede resolver o descartar.
-// Privacidad: reporterAlias es el usuario de acceso de un menor; llega en la respuesta pero NO se muestra.
+// Privacidad: el servidor NO envía reporterAlias (usuario de acceso de un menor) al gestor de contenido; solo lo recibe soporte.
 export default function EscalatedReports({ onOpenActivity }) {
     const { token, handleAuthError } = useStaff();
     const mounted = useMounted();

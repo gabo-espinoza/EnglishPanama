@@ -40,10 +40,14 @@ import {
     normalizeText
 } from './constants';
 
+// Solo quien creó el borrador puede modificarlo (el servidor responde 403 NOT_AUTHOR).
+const NOT_AUTHOR_TEXT = 'Solo su autor puede modificar este borrador.';
+
 const LIFECYCLE_ERRORS = [
     { 404: 'La actividad o la pregunta ya no existe. Vuelve a la lista para ver el estado actual.' },
     {
         INVALID_STATE: 'La actividad cambió de estado mientras la editabas. Ya cargamos los datos actuales; revisa y vuelve a intentarlo.',
+        NOT_AUTHOR: NOT_AUTHOR_TEXT,
         NO_QUESTIONS: 'Agrega al menos una pregunta antes de enviar la actividad a revisión.'
     }
 ];
@@ -283,7 +287,10 @@ export default function ActivityDetail({ id, initialNotice = null, onBack, onOpe
     }
 
     const isDraft = activity.status === 'draft';
-    const dirty = isDraft && form ? !sameFields(form, activity) : false;
+    const isAuthor = activity.authorId !== null && activity.authorId !== undefined && Number(activity.authorId) === Number(myId);
+    // Editar, preguntas, enviar, retirar y borrar: solo el autor. Archivar y crear revisión: cualquier gestor.
+    const canEdit = isDraft && isAuthor;
+    const dirty = canEdit && form ? !sameFields(form, activity) : false;
     const questions = Array.isArray(activity.questions) ? activity.questions : [];
     const submitBlocked = questions.length === 0 || dirty;
     // Con cambios sin guardar en los datos, "Volver" pide confirmación en línea.
@@ -350,13 +357,13 @@ export default function ActivityDetail({ id, initialNotice = null, onBack, onOpe
             <section className={CARD} aria-labelledby="actions-title">
                 <h3 id="actions-title" className="mb-3 text-lg font-display text-brand-600">Acciones</h3>
                 <div className="flex flex-wrap gap-2">
-                    {isDraft && (
+                    {canEdit && (
                         <>
                             <button type="button" className={BTN_PRIMARY} disabled={busy || submitBlocked} onClick={() => setPending('submit')}>Enviar a revisión</button>
                             <button type="button" className={BTN_DANGER} disabled={busy} onClick={() => setPending('delete')}>Borrar borrador</button>
                         </>
                     )}
-                    {activity.status === 'in_review' && (
+                    {activity.status === 'in_review' && isAuthor && (
                         <button type="button" className={BTN_SECONDARY} disabled={busy} onClick={() => setPending('withdraw')}>Retirar de revisión</button>
                     )}
                     {activity.status === 'published' && (
@@ -367,7 +374,10 @@ export default function ActivityDetail({ id, initialNotice = null, onBack, onOpe
                     )}
                     {activity.status === 'archived' && <p className="text-sm text-gray-500">No hay acciones disponibles.</p>}
                 </div>
-                {isDraft && submitBlocked && (
+                {(isDraft || activity.status === 'in_review') && !isAuthor && (
+                    <p role="note" className="mt-2 text-sm text-gray-600">{NOT_AUTHOR_TEXT}</p>
+                )}
+                {canEdit && submitBlocked && (
                     <p className="mt-2 text-xs text-gray-500">
                         {dirty ? 'Guarda los cambios de los datos antes de enviar a revisión.' : 'Agrega al menos una pregunta para poder enviar a revisión.'}
                     </p>
@@ -389,7 +399,7 @@ export default function ActivityDetail({ id, initialNotice = null, onBack, onOpe
 
             <section className={CARD} aria-labelledby="data-title">
                 <h3 id="data-title" className="mb-3 text-lg font-display text-brand-600">Datos de la actividad</h3>
-                {isDraft && form ? (
+                {canEdit && form ? (
                     <form
                         noValidate
                         onSubmit={(e) => {
@@ -429,12 +439,12 @@ export default function ActivityDetail({ id, initialNotice = null, onBack, onOpe
             <section className={CARD} aria-labelledby="questions-title">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                     <h3 id="questions-title" ref={questionsHeadingRef} tabIndex={-1} className="text-lg font-display text-brand-600 outline-none">Preguntas ({questions.length})</h3>
-                    {isDraft && editing === null && (
+                    {canEdit && editing === null && (
                         <button type="button" className={BTN_PRIMARY} disabled={busy} onClick={() => setEditing('new')}>Agregar pregunta</button>
                     )}
                 </div>
 
-                {isDraft && editing === 'new' && (
+                {canEdit && editing === 'new' && (
                     <div className="mb-4">
                         <QuestionForm
                             idPrefix="question-new"
@@ -459,7 +469,7 @@ export default function ActivityDetail({ id, initialNotice = null, onBack, onOpe
                 <ol className="space-y-3">
                     {questions.map((question, index) => (
                         <li key={question.id} className="rounded-2xl border-2 border-gray-100 p-4">
-                            {isDraft && editing === question.id ? (
+                            {canEdit && editing === question.id ? (
                                 <QuestionForm
                                     idPrefix={`question-${question.id}`}
                                     gameType={activity.gameType}
@@ -476,13 +486,13 @@ export default function ActivityDetail({ id, initialNotice = null, onBack, onOpe
                                     question={question}
                                     index={index}
                                     gameType={activity.gameType}
-                                    editable={isDraft}
+                                    editable={canEdit}
                                     busy={busy}
                                     onEdit={() => setEditing(question.id)}
                                     onDelete={() => setDeletingQuestion(question.id)}
                                 />
                             )}
-                            {isDraft && deletingQuestion === question.id && (
+                            {canEdit && deletingQuestion === question.id && (
                                 <div className="mt-3">
                                     <FocusedConfirm
                                         label="Borrar pregunta"

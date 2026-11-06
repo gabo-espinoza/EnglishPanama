@@ -743,16 +743,36 @@ auditoria (`content.*`, `target = activity:<id>`), incluidos los intentos
 denegados. La forma de `options`/`correct_answer` se valida en el servidor por
 tipo de juego (`memory`, `multiple_choice`, `sentence_order`, `fill_blank`).
 
+**Un borrador es de su autor.** Solo quien lo creo (`activities.author_id` = cuenta
+que llama) puede modificarlo: `PUT /activities/:id`, agregar/editar/borrar
+preguntas, `DELETE /activities/:id`, `submit` y `withdraw`. Cualquier otro
+`content_manager` recibe `403` con `code: "NOT_AUTHOR"` y el mensaje
+`Solo quien creo el borrador puede modificarlo.` (queda auditado como `denied`).
+Una actividad sin autor (`author_id` NULL, sembrada) no la edita nadie por estas
+rutas. Orden de las comprobaciones: existencia (`404`), estado (`409`
+`INVALID_STATE`), autoria (`403` `NOT_AUTHOR`), validacion del cuerpo. Quedan
+abiertos a **cualquier** `content_manager`: `archive` (el gestor archiva
+directamente; sirve para retirar una actividad erronea o reportada) y `revision`
+(el borrador nuevo tiene como autor a quien lo crea). `approve`/`reject` no
+cambian (`SAME_AUTHOR` si el revisor es el autor). Por decision de diseno, el
+`content_reviewer` puede **leer** cualquier actividad por id, en cualquier estado.
+
 ## Fase C: Juego, Comunidad y Soporte (modulos 7, 8 y 9)
 
 ### Reportes de contenido
 
 - `POST /api/reports` — estudiantes y docentes. Body `{ kind, activityId, questionId?, note? }`,
   `kind` = `error` o `inappropriate`. Limite de 5 por cuenta y hora; un solo
-  reporte abierto por persona y contenido; solo se puede reportar contenido `published`.
+  reporte abierto o escalado por persona, tipo de reporte y objetivo (actividad +
+  pregunta, que puede ser nula); el duplicado responde `409` con
+  `code: "ALREADY_REPORTED"`. La comprobacion es atomica (transaccion que bloquea la
+  fila del reportante), asi peticiones simultaneas no crean dos. Al resolverse o
+  descartarse, se puede volver a reportar. Solo se puede reportar contenido `published`.
 - `GET /api/staff/reports?status=` — `support` ve `error`, `moderator` ve
   `inappropriate` y `content_manager` ve los `escalated`. Nunca contrasenas ni
-  datos personales: solo el alias del reportante y si su cuenta esta activa.
+  datos personales. `reporterAlias` (el usuario de acceso del reportante, que puede
+  ser un menor) solo se devuelve a `support`: para `moderator` y `content_manager`
+  la clave se **omite**. Todos reciben `reporterRole` y `reporterActive`.
 - `PATCH /api/staff/reports/:id` — `{ decision }`: `escalate`, `resolve` o
   `dismiss` segun el rol.
 
