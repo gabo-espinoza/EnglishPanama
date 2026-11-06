@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { ConfirmPanel } from '../ui';
+import { ConfirmPanel } from './ui';
 
 // ConfirmPanel con manejo del foco: al abrirse lleva el foco a "Cancelar" (el último botón; un Enter
 // accidental no ejecuta la acción) y, al cerrarse, intenta devolverlo al control que lo abrió (si

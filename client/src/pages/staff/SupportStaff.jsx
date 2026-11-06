@@ -6,7 +6,6 @@ import {
     BTN_PRIMARY,
     BTN_SECONDARY,
     CARD,
-    ConfirmPanel,
     EmptyState,
     ErrorBanner,
     LoadingRows,
@@ -18,6 +17,7 @@ import {
     useAsync,
     useMounted
 } from './ui';
+import FocusedConfirm from './FocusedConfirm';
 
 const STATUS_FILTERS = [
     { value: 'open', label: 'Abiertos' },
@@ -89,7 +89,7 @@ function buttonClass(decision) {
     return BTN_SECONDARY;
 }
 
-function ReportCard({ report, pending, busy, panelRef, onAsk, onCancel, onConfirm }) {
+function ReportCard({ report, pending, busy, onAsk, onCancel, onConfirm }) {
     // El servidor solo deja decidir sobre reportes abiertos de la bandeja de soporte.
     const canDecide = report.status === 'open';
     const ask = pending && pending.id === report.id ? DECISIONS[pending.decision] : null;
@@ -144,19 +144,17 @@ function ReportCard({ report, pending, busy, panelRef, onAsk, onCancel, onConfir
                 )}
 
                 {ask && (
-                    <div ref={panelRef} tabIndex={-1} className="outline-none">
-                        <ConfirmPanel
-                            label={ask.button}
-                            confirmText={ask.confirmText}
-                            danger={ask.danger}
-                            busy={busy}
-                            onConfirm={onConfirm}
-                            onCancel={onCancel}
-                        >
-                            <p>{`${ask.button} el reporte n.º ${report.id} de la actividad ${activityLabel(report)}.`}</p>
-                            <p className="mt-1 font-medium">{ask.consequence}</p>
-                        </ConfirmPanel>
-                    </div>
+                    <FocusedConfirm
+                        label={ask.button}
+                        confirmText={ask.confirmText}
+                        danger={ask.danger}
+                        busy={busy}
+                        onConfirm={onConfirm}
+                        onCancel={onCancel}
+                    >
+                        <p>{`${ask.button} el reporte n.º ${report.id} de la actividad ${activityLabel(report)}.`}</p>
+                        <p className="mt-1 font-medium">{ask.consequence}</p>
+                    </FocusedConfirm>
                 )}
             </article>
         </li>
@@ -170,17 +168,12 @@ export default function SupportStaff() {
     const [pending, setPending] = useState(null); // { id, decision }
     const [busy, setBusy] = useState(false);
     const [notice, setNotice] = useState(null);
-    const panelRef = useRef(null);
     const noticeRef = useRef(null);
     const restoreRef = useRef(null); // botón que abrió la confirmación cancelada
 
     const list = useAsync(() => listReports(token, { kind: 'error', status }), [token, status]);
 
-    // Al abrir la confirmación el foco pasa al panel; al mostrar un resultado, al aviso.
-    const askKey = pending ? `${pending.id}-${pending.decision}` : '';
-    useEffect(() => {
-        if (askKey && panelRef.current) panelRef.current.focus();
-    }, [askKey]);
+    // Al abrir la confirmación el foco pasa a "Cancelar" (FocusedConfirm); al mostrar un resultado, al aviso.
     useEffect(() => {
         if (notice && noticeRef.current) noticeRef.current.focus();
     }, [notice]);
@@ -278,7 +271,6 @@ export default function SupportStaff() {
                                 report={report}
                                 pending={pending}
                                 busy={busy}
-                                panelRef={panelRef}
                                 onAsk={(id, decision) => setPending({ id, decision })}
                                 onCancel={cancel}
                                 onConfirm={confirm}

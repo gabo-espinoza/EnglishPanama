@@ -5,7 +5,6 @@ import {
     BTN_PRIMARY,
     BTN_SECONDARY,
     CARD,
-    ConfirmPanel,
     EmptyState,
     ErrorBanner,
     LoadingRows,
@@ -17,6 +16,7 @@ import {
     useAsync,
     useMounted
 } from './ui';
+import FocusedConfirm from './FocusedConfirm';
 
 const STATUS_FILTERS = [
     { value: 'open', label: 'Abiertos' },
@@ -70,13 +70,6 @@ const DECISION_ERRORS_BY_CODE = {
 };
 
 function ReportCard({ report, pending, busy, disabled, onChoose, onConfirm, onCancel }) {
-    const panelRef = useRef(null);
-
-    // Al abrir la confirmación el foco pasa al recuadro para que se anuncie y se pueda operar con teclado.
-    useEffect(() => {
-        if (pending && panelRef.current) panelRef.current.focus();
-    }, [pending]);
-
     const reporterRole = REPORTER_ROLES[report.reporterRole] || report.reporterRole;
     const target = report.questionId
         ? `Pregunta n.º ${report.questionId} de la actividad`
@@ -140,8 +133,8 @@ function ReportCard({ report, pending, busy, disabled, onChoose, onConfirm, onCa
             )}
 
             {decisionLabel && (
-                <div ref={panelRef} tabIndex={-1} className="mt-4 outline-none">
-                    <ConfirmPanel
+                <div className="mt-4">
+                    <FocusedConfirm
                         label={`Confirmar: ${decisionLabel.button}`}
                         confirmText={decisionLabel.confirmText}
                         danger={decisionLabel.danger}
@@ -150,7 +143,7 @@ function ReportCard({ report, pending, busy, disabled, onChoose, onConfirm, onCa
                         onCancel={onCancel}
                     >
                         {decisionLabel.question}
-                    </ConfirmPanel>
+                    </FocusedConfirm>
                 </div>
             )}
         </li>

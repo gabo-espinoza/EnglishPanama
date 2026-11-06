@@ -15,7 +15,7 @@ import {
     useAsync,
     useMounted
 } from '../ui';
-import FocusedConfirm from './FocusedConfirm';
+import FocusedConfirm from '../FocusedConfirm';
 import { REPORTER_ROLE_LABELS, REPORT_KIND_LABELS } from './constants';
 
 const DECISION_LABELS = { resolve: 'Resolver', dismiss: 'Descartar' };
