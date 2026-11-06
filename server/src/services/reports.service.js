@@ -129,7 +129,7 @@ async function decide(actor, id, decision) {
             actorType: 'staff', actorId: actor.id, actorRole: actor.role,
             action: 'content.report.decide', target: `report:${id}`, outcome: 'denied'
         });
-        throw new AppError('No puedes realizar esa accion sobre el reporte.', 403);
+        throw new AppError('No puedes realizar esa acción sobre el reporte.', 403);
     }
     const inbox = decisionInbox(actor.role);
     const next = decision === 'escalate' ? 'escalated'

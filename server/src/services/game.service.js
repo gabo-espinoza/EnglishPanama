@@ -220,7 +220,7 @@ async function addDailyChallenge(actor, { questionId, position }) {
         }
         const [dup] = await conn.query('SELECT 1 FROM daily_challenges WHERE question_id = ? LIMIT 1', [qid]);
         if (dup.length > 0) {
-            throw new AppError('Esa pregunta ya esta en el pool.', 409, 'QUESTION_ALREADY_IN_POOL');
+            throw new AppError('Esa pregunta ya está en la lista de retos diarios.', 409, 'QUESTION_ALREADY_IN_POOL');
         }
         pos = Number(position);
         if (!Number.isInteger(pos) || pos <= 0) {

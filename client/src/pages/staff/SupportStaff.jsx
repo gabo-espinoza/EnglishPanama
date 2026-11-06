@@ -14,7 +14,7 @@ import {
     PageHeader,
     StatusBadge,
     errorMessage,
-    formatDate,
+    formatDateTime,
     useAsync,
     useMounted
 } from './ui';
@@ -45,15 +45,15 @@ const EMPTY_TEXT = {
 // Cada decisión dice qué pasa con el reporte; desde esta bandeja no se puede deshacer.
 const DECISIONS = {
     escalate: {
-        button: 'Escalar al gestor de contenido',
+        button: 'Escalar',
         confirmText: 'Sí, escalar',
         danger: false,
         consequence: 'El reporte pasará al gestor de contenido para que corrija la actividad y saldrá de tu bandeja de pendientes. No podrás deshacerlo.',
         done: 'El reporte se escaló al gestor de contenido.'
     },
     resolve: {
-        button: 'Marcar como resuelto',
-        confirmText: 'Sí, marcar como resuelto',
+        button: 'Resolver',
+        confirmText: 'Sí, resolver',
         danger: false,
         consequence: 'El reporte quedará cerrado como resuelto: el problema ya está atendido. No podrás reabrirlo.',
         done: 'El reporte se marcó como resuelto.'
@@ -78,7 +78,9 @@ const DECIDE_ERRORS_BY_STATUS = {
 const DECIDE_ERRORS_BY_CODE = { REPORT_CLOSED: ALREADY_HANDLED };
 
 function activityLabel(report) {
-    return report.activityTitle || `Actividad n.º ${report.activityId}`;
+    return report.activityTitle
+        ? `«${report.activityTitle}» (n.º ${report.activityId})`
+        : `n.º ${report.activityId} (ya no disponible)`;
 }
 
 function buttonClass(decision) {
@@ -96,43 +98,32 @@ function ReportCard({ report, pending, busy, panelRef, onAsk, onCancel, onConfir
     return (
         <li>
             <article aria-labelledby={titleId} className={`${CARD} space-y-3`}>
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0">
-                        <h3 id={titleId} className="break-words text-base font-bold text-gray-800">
-                            {activityLabel(report)}
-                        </h3>
-                        <p className="text-sm text-gray-500">
-                            {report.questionId ? `Pregunta n.º ${report.questionId}` : 'Reporte sobre la actividad completa'}
-                        </p>
-                    </div>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-bold uppercase tracking-wide text-gray-400">
+                        Reporte n.º {report.id} · Error en el contenido
+                    </p>
                     <StatusBadge value={report.status} map={REPORT_STATUS} />
                 </div>
 
-                <dl className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-gray-500">
-                    <div className="flex gap-1">
-                        <dt className="font-bold">Reporte n.º</dt>
-                        <dd>{report.id}</dd>
-                    </div>
-                    <div className="flex gap-1">
-                        <dt className="font-bold">Enviado por</dt>
-                        <dd>{REPORTER_ROLES[report.reporterRole] || report.reporterRole}</dd>
-                    </div>
-                    <div className="flex gap-1">
-                        <dt className="font-bold">Fecha</dt>
-                        <dd>{formatDate(report.createdAt)}</dd>
-                    </div>
-                </dl>
+                <h3 id={titleId} className="break-words text-sm font-bold text-gray-700">
+                    {report.questionId ? `Pregunta n.º ${report.questionId} de la actividad` : 'Actividad'} {activityLabel(report)}
+                </h3>
+                <p className="text-xs text-gray-500">
+                    Reportado por: {REPORTER_ROLES[report.reporterRole] || report.reporterRole} · {formatDateTime(report.createdAt)}
+                </p>
 
-                <div>
-                    <p className="mb-1 text-xs font-bold uppercase tracking-wide text-gray-400">Nota de la persona</p>
+                <figure>
+                    <figcaption className="text-xs font-bold uppercase tracking-wide text-gray-400">
+                        Nota escrita por quien reportó
+                    </figcaption>
                     {report.note ? (
-                        <blockquote className="whitespace-pre-wrap break-words rounded-xl border-l-4 border-brand-400 bg-gray-50 px-4 py-3 text-sm italic text-gray-700">
+                        <blockquote className="mt-1 whitespace-pre-wrap break-words rounded-xl border-l-4 border-brand-500 bg-gray-50 px-4 py-3 text-sm italic text-gray-700">
                             {report.note}
                         </blockquote>
                     ) : (
-                        <p className="text-sm text-gray-400">Sin nota.</p>
+                        <p className="mt-1 text-sm text-gray-400">Sin nota</p>
                     )}
-                </div>
+                </figure>
 
                 {canDecide && !ask && (
                     <div className="flex flex-wrap gap-2">
@@ -141,6 +132,7 @@ function ReportCard({ report, pending, busy, panelRef, onAsk, onCancel, onConfir
                                 key={decision}
                                 type="button"
                                 id={`soporte-${report.id}-${decision}`}
+                                aria-label={`${DECISIONS[decision].button} el reporte n.º ${report.id}`}
                                 disabled={busy}
                                 onClick={() => onAsk(report.id, decision)}
                                 className={buttonClass(decision)}
@@ -161,7 +153,7 @@ function ReportCard({ report, pending, busy, panelRef, onAsk, onCancel, onConfir
                             onConfirm={onConfirm}
                             onCancel={onCancel}
                         >
-                            <p>{`${ask.button}: ${activityLabel(report)}.`}</p>
+                            <p>{`${ask.button} el reporte n.º ${report.id} de la actividad ${activityLabel(report)}.`}</p>
                             <p className="mt-1 font-medium">{ask.consequence}</p>
                         </ConfirmPanel>
                     </div>

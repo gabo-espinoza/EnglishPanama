@@ -21,12 +21,11 @@ import {
     PageHeader,
     StatusBadge,
     errorMessage,
-    formatDate,
     formatDateTime,
     useAsync,
     useMounted
 } from './ui';
-import { normalizeText } from './content/constants';
+import { authorLabel, normalizeText } from './content/constants';
 
 const MODULE_LABELS = { vocabulary: 'Vocabulario', grammar: 'Gramática', reading: 'Lectura' };
 const GAME_LABELS = {
@@ -350,7 +349,7 @@ function ReviewDetail({ activityId, onBack, onDone }) {
                         <Meta term="Tipo de juego">{label(GAME_LABELS, activity.gameType)}</Meta>
                         <Meta term="Nivel">{activity.level}</Meta>
                         <Meta term="Autor">
-                            Cuenta n.º {activity.authorId ?? '—'}{ownActivity ? ' (tú)' : ''}
+                            {authorLabel(activity.authorId, myId)}
                         </Meta>
                         <Meta term="Última actualización">{formatDateTime(activity.updatedAt)}</Meta>
                     </dl>
@@ -489,7 +488,7 @@ function ReviewDetail({ activityId, onBack, onDone }) {
 // Cola de revisión
 // ---------------------------------------------------------------------------
 
-function QueueItem({ item, selected, onSelect }) {
+function QueueItem({ item, selected, onSelect, myId }) {
     return (
         <li>
             <button
@@ -505,7 +504,7 @@ function QueueItem({ item, selected, onSelect }) {
                     N.º {item.id} · {label(MODULE_LABELS, item.moduleSlug)} · {label(GAME_LABELS, item.gameType)} · Nivel {item.level}
                 </span>
                 <span className="mt-1 block text-xs text-gray-500">
-                    Autor: cuenta n.º {item.authorId ?? '—'} · Enviada: {formatDate(item.updatedAt)}
+                    Autor: {authorLabel(item.authorId, myId)} · Enviada: {formatDateTime(item.updatedAt)}
                 </span>
                 {item.replacesId !== null && item.replacesId !== undefined && (
                     <span className="mt-2 inline-block rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-600">
@@ -518,7 +517,7 @@ function QueueItem({ item, selected, onSelect }) {
 }
 
 export default function ContentReview() {
-    const { token } = useStaff();
+    const { token, id: myId } = useStaff();
     const [moduleFilter, setModuleFilter] = useState('');
     const [levelFilter, setLevelFilter] = useState('');
     const [selectedId, setSelectedId] = useState(null);
@@ -615,7 +614,7 @@ export default function ContentReview() {
                             </p>
                             <ul className="space-y-2">
                                 {items.map((item) => (
-                                    <QueueItem key={item.id} item={item} selected={item.id === selectedId} onSelect={select} />
+                                    <QueueItem key={item.id} item={item} selected={item.id === selectedId} onSelect={select} myId={myId} />
                                 ))}
                             </ul>
                         </>

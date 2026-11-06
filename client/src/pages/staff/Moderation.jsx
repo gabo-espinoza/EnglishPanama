@@ -36,7 +36,7 @@ const REPORTER_ROLES = { student: 'Estudiante', teacher: 'Docente' };
 
 const DECISIONS = {
     escalate: {
-        button: 'Escalar al gestor de contenido',
+        button: 'Escalar',
         confirmText: 'Sí, escalar',
         danger: false,
         question: 'Vas a escalar este reporte. Pasará al gestor de contenido y saldrá de tu bandeja de abiertos; ya no podrás decidir sobre él.',
@@ -122,6 +122,7 @@ function ReportCard({ report, pending, busy, disabled, onChoose, onConfirm, onCa
                             key={decision}
                             type="button"
                             id={`moderacion-${report.id}-${decision}`}
+                            aria-label={`${DECISIONS[decision].button} el reporte n.º ${report.id}`}
                             disabled={disabled}
                             onClick={() => onChoose(report.id, decision)}
                             className={decision === 'resolve' ? BTN_PRIMARY : BTN_SECONDARY}

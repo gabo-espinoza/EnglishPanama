@@ -36,6 +36,7 @@ import {
     activityFormErrors,
     answerParts,
     asArray,
+    authorLabel,
     normalizeText
 } from './constants';
 
@@ -52,11 +53,6 @@ const STATUS_EXPLANATION = {
     published: 'Está publicada y es de solo lectura. Para cambiarla crea una revisión (un borrador nuevo): la versión publicada sigue visible para los estudiantes hasta que se apruebe la nueva.',
     archived: 'Está archivada: es de solo lectura y no tiene acciones disponibles.'
 };
-
-function authorLabel(authorId, myId) {
-    if (authorId === null || authorId === undefined) return 'Sin autor';
-    return Number(authorId) === Number(myId) ? 'Tú' : `Cuenta de gestión n.º ${authorId}`;
-}
 
 function formFromActivity(activity) {
     return {
@@ -160,6 +156,11 @@ export default function ActivityDetail({ id, initialNotice = null, onBack, onOpe
         if (previous !== null && headingRef.current) headingRef.current.focus();
     }, [currentStatus]);
 
+    // Un solo aviso: al abrir una confirmación o un formulario de pregunta se descarta el anterior.
+    useEffect(() => {
+        if (pending || editing !== null || deletingQuestion !== null) setNotice(null);
+    }, [pending, editing, deletingQuestion]);
+
     function focusQuestions() {
         if (mounted.current && questionsHeadingRef.current) questionsHeadingRef.current.focus();
     }
@@ -195,6 +196,7 @@ export default function ActivityDetail({ id, initialNotice = null, onBack, onOpe
     function saveDetails() {
         const errors = activityFormErrors(form);
         setFormErrors(errors);
+        setNotice(null);
         if (Object.keys(errors).length > 0) {
             setPending(null);
             return;
@@ -214,6 +216,7 @@ export default function ActivityDetail({ id, initialNotice = null, onBack, onOpe
     function requestSaveDetails() {
         const errors = activityFormErrors(form);
         setFormErrors(errors);
+        setNotice(null);
         if (Object.keys(errors).length > 0) return;
         if (form.gameType !== activity.gameType && activity.questions.length > 0) setPending('saveDetails');
         else saveDetails();
@@ -400,7 +403,10 @@ export default function ActivityDetail({ id, initialNotice = null, onBack, onOpe
                             form={form}
                             errors={formErrors}
                             disabled={busy}
-                            onChange={(field, value) => setForm((prev) => ({ ...prev, [field]: value }))}
+                            onChange={(field, value) => {
+                                setNotice(null);
+                                setForm((prev) => ({ ...prev, [field]: value }));
+                            }}
                         />
                         <button type="submit" className={BTN_PRIMARY} disabled={busy || !dirty}>
                             Guardar datos
@@ -436,7 +442,10 @@ export default function ActivityDetail({ id, initialNotice = null, onBack, onOpe
                             question={null}
                             busy={busy}
                             onSave={saveQuestion}
-                            onCancel={() => setEditing(null)}
+                            onCancel={() => {
+                                setEditing(null);
+                                focusQuestions();
+                            }}
                         />
                     </div>
                 )}
@@ -457,7 +466,10 @@ export default function ActivityDetail({ id, initialNotice = null, onBack, onOpe
                                     question={question}
                                     busy={busy}
                                     onSave={saveQuestion}
-                                    onCancel={() => setEditing(null)}
+                                    onCancel={() => {
+                                setEditing(null);
+                                focusQuestions();
+                            }}
                                 />
                             ) : (
                                 <QuestionItem

@@ -29,6 +29,12 @@ export const STATUS_MAP = {
 export const REPORT_KIND_LABELS = { error: 'Error', inappropriate: 'Inadecuado' };
 export const REPORTER_ROLE_LABELS = { student: 'Estudiante', teacher: 'Docente' };
 
+// Autor de una actividad: una sola redacción en lista y detalle.
+export function authorLabel(authorId, myId) {
+    if (authorId === null || authorId === undefined) return 'Sin autor';
+    return Number(authorId) === Number(myId) ? 'Tú' : `Cuenta de gestión n.º ${authorId}`;
+}
+
 export const MAX_TITLE = 100;
 export const MAX_PASSAGE = 4000;
 export const MAX_TOPIC = 50;
@@ -43,7 +49,7 @@ const FORBIDDEN = /[\x00-\x1f\x7f<>]/;
 // Devuelve el texto del problema o '' si el valor es válido. `name` va con artículo ("El título").
 export function textProblem(value, name, max, required = true) {
     const text = typeof value === 'string' ? value.trim() : '';
-    if (!text) return required ? `${name} es obligatorio.` : '';
+    if (!text) return required ? `${name} es ${/^la\s/i.test(name) ? 'obligatoria' : 'obligatorio'}.` : '';
     if (text.length > max) return `${name} no puede pasar de ${max} caracteres.`;
     if (FORBIDDEN.test(text)) return `${name} tiene caracteres no permitidos (<, >, saltos de línea o de control).`;
     return '';

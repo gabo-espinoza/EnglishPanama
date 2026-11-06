@@ -143,6 +143,7 @@ function RulesSection({ token, handleAuthError }) {
     const handleSubmit = async (event) => {
         event.preventDefault();
         if (busy) return;
+        setNotice(null);
         setSubmitted(true);
         const firstInvalid = RULE_FIELDS.find((f) => errors[f.key]);
         if (firstInvalid) {
@@ -205,14 +206,17 @@ function RulesSection({ token, handleAuthError }) {
                                                 autoComplete="off"
                                                 className={FIELD}
                                                 value={form[f.key]}
-                                                onChange={(e) => setForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                                                onChange={(e) => {
+                                                    setNotice(null);
+                                                    setForm((prev) => ({ ...prev, [f.key]: e.target.value }));
+                                                }}
                                                 disabled={busy}
                                                 aria-invalid={showError ? 'true' : 'false'}
                                                 aria-describedby={showError ? `${id}-help ${id}-error` : `${id}-help`}
                                             />
                                         </Field>
                                         {showError && (
-                                            <p id={`${id}-error`} className="mt-1 text-xs font-bold text-red-600">{errors[f.key]}</p>
+                                            <p id={`${id}-error`} role="alert" className="mt-1 text-xs font-bold text-red-600">{errors[f.key]}</p>
                                         )}
                                     </div>
                                 );
@@ -227,6 +231,7 @@ function RulesSection({ token, handleAuthError }) {
                                     type="button"
                                     className={BTN_SECONDARY}
                                     onClick={() => {
+                                        setNotice(null);
                                         setForm(rulesToForm(stored));
                                         setSubmitted(false);
                                     }}
@@ -336,7 +341,7 @@ function AliasesSection({ token, handleAuthError }) {
                             : `Mostrando ${shown.length} de ${filtered.length} alias, de mayor a menor XP.${filtered.length > shown.length ? ' Usa la búsqueda para encontrar otros.' : ''}`}
                     </p>
                     {shown.length > 0 && (
-                        <div className="overflow-x-auto">
+                        <div className="relative overflow-x-auto">
                             <table className="w-full min-w-[30rem] text-left text-sm">
                                 <caption className="sr-only">Alias de estudiantes ordenados por XP</caption>
                                 <thead>
@@ -372,7 +377,7 @@ function AliasesSection({ token, handleAuthError }) {
                                                         className={BTN_SECONDARY}
                                                         disabled={busyId !== null}
                                                         aria-label={`Ocultar el alias ${row.alias}`}
-                                                        onClick={() => setPending({ studentId: row.studentId, alias: row.alias })}
+                                                        onClick={() => { setNotice(null); setPending({ studentId: row.studentId, alias: row.alias }); }}
                                                     >
                                                         Ocultar
                                                     </button>
@@ -414,6 +419,7 @@ function ChallengesSection({ token, handleAuthError }) {
 
     const runSearch = (event) => {
         event.preventDefault();
+        setNotice(null);
         setApplied({ module: draft.module, level: draft.level, q: draft.q.trim() });
     };
 
@@ -496,7 +502,7 @@ function ChallengesSection({ token, handleAuthError }) {
                     <EmptyState text="La lista de retos está vacía. Agrega preguntas con el buscador de abajo." />
                 )}
                 {poolRows.length > 0 && (
-                    <div className="overflow-x-auto">
+                    <div className="relative overflow-x-auto">
                         <table className="w-full min-w-[34rem] text-left text-sm">
                             <caption className="sr-only">Preguntas de la lista de retos diarios</caption>
                             <thead>
@@ -524,7 +530,7 @@ function ChallengesSection({ token, handleAuthError }) {
                                                 className={BTN_SECONDARY}
                                                 disabled={busyKey !== null}
                                                 aria-label={`Quitar de la lista el reto n.º ${c.id}`}
-                                                onClick={() => setPending({ id: c.id, prompt: c.prompt })}
+                                                onClick={() => { setNotice(null); setPending({ id: c.id, prompt: c.prompt }); }}
                                             >
                                                 Quitar
                                             </button>

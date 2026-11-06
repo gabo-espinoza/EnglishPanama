@@ -89,7 +89,7 @@ export default function EscalatedReports({ onOpenActivity }) {
                                         </p>
                                     </div>
                                     {report.activityId && report.activityTitle && (
-                                        <button type="button" className={BTN_SECONDARY} onClick={() => onOpenActivity(report.activityId)}>
+                                        <button type="button" className={BTN_SECONDARY} aria-label={`Abrir la actividad del reporte n.º ${report.id}`} onClick={() => onOpenActivity(report.activityId)}>
                                             Abrir actividad
                                         </button>
                                     )}
@@ -114,10 +114,10 @@ export default function EscalatedReports({ onOpenActivity }) {
                                     </div>
                                 ) : (
                                     <div className="mt-3 flex flex-wrap gap-2">
-                                        <button type="button" className={BTN_PRIMARY} disabled={busy} onClick={() => setPending({ id: report.id, decision: 'resolve' })}>
+                                        <button type="button" className={BTN_PRIMARY} disabled={busy} aria-label={`Resolver el reporte n.º ${report.id}`} onClick={() => { setNotice(null); setPending({ id: report.id, decision: 'resolve' }); }}>
                                             Resolver
                                         </button>
-                                        <button type="button" className={BTN_DANGER} disabled={busy} onClick={() => setPending({ id: report.id, decision: 'dismiss' })}>
+                                        <button type="button" className={BTN_DANGER} disabled={busy} aria-label={`Descartar el reporte n.º ${report.id}`} onClick={() => { setNotice(null); setPending({ id: report.id, decision: 'dismiss' }); }}>
                                             Descartar
                                         </button>
                                     </div>

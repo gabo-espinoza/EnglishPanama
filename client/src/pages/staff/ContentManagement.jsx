@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useStaff } from '../../components/StaffRoute';
 import { createContentActivity, listContentActivities } from '../../api/staff';
@@ -15,7 +15,7 @@ import {
     PageHeader,
     StatusBadge,
     errorMessage,
-    formatDate,
+    formatDateTime,
     useAsync,
     useMounted
 } from './ui';
@@ -27,7 +27,8 @@ import {
     LEVELS,
     MODULE_LABELS,
     STATUS_MAP,
-    activityFormErrors
+    activityFormErrors,
+    authorLabel
 } from './content/constants';
 
 const EMPTY_FORM = { title: '', moduleSlug: 'vocabulary', gameType: 'memory', level: 'A1.1', passageText: '' };
@@ -50,7 +51,11 @@ function CreateActivity({ form, setForm, onCreated, onCancel }) {
         setServerError('');
         const found = activityFormErrors(form);
         setErrors(found);
-        if (Object.keys(found).length > 0) return;
+        if (Object.keys(found).length > 0) {
+            const first = document.getElementById(found.title ? 'create-title' : 'create-passage');
+            if (first) first.focus();
+            return;
+        }
         setBusy(true);
         try {
             const fields = {
@@ -96,7 +101,7 @@ function CreateActivity({ form, setForm, onCreated, onCancel }) {
 
 // Los filtros viven en la URL (?estado=&modulo=&nivel=): sobreviven a abrir una actividad y volver.
 function ActivityList({
-    flash, onFlashClose, onOpen, filters, onFilter, creating, setCreating, createForm, setCreateForm, onCreated
+    flash, onFlashClose, focusRef, onOpen, filters, onFilter, creating, setCreating, createForm, setCreateForm, onCreated
 }) {
     const { token, id: myId } = useStaff();
     const { status, moduleSlug, level } = filters;
@@ -106,6 +111,16 @@ function ActivityList({
     );
     const activities = Array.isArray(list.data) ? list.data : [];
     const filtered = Boolean(status || moduleSlug || level);
+
+    // Al volver desde el detalle el foco pasa al encabezado de la lista (el botón "Volver" ya no existe).
+    useEffect(() => {
+        if (!focusRef.current) return;
+        focusRef.current = false;
+        if (creating) return; // el formulario de creación ya toma el foco
+        const heading = document.getElementById('activities-title');
+        if (heading) heading.focus();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     return (
         <div className="space-y-5">
@@ -128,7 +143,7 @@ function ActivityList({
             )}
 
             <section className={CARD} aria-labelledby="activities-title">
-                <h2 id="activities-title" className="mb-3 text-lg font-display text-brand-600">Actividades</h2>
+                <h2 id="activities-title" tabIndex={-1} className="mb-3 text-lg font-display text-brand-600 outline-none">Actividades</h2>
                 <div className="mb-4 grid gap-3 sm:grid-cols-3">
                     <Field id="filter-status" label="Estado">
                         <select id="filter-status" className={FIELD} value={status} onChange={(e) => onFilter('estado', e.target.value)}>
@@ -175,7 +190,7 @@ function ActivityList({
                                             Actividad n.º {activity.id} · {MODULE_LABELS[activity.moduleSlug] || activity.moduleSlug} · {GAME_LABELS[activity.gameType] || activity.gameType} · Nivel {activity.level}
                                         </p>
                                         <p className="text-xs text-gray-500">
-                                            Autor: {Number(activity.authorId) === Number(myId) ? 'Tú' : `Cuenta de gestión n.º ${activity.authorId ?? '—'}`} · Actualizada: {formatDate(activity.updatedAt)}
+                                            Autor: {authorLabel(activity.authorId, myId)} · Actualizada: {formatDateTime(activity.updatedAt)}
                                             {activity.replacesId ? ` · Revisión de la actividad n.º ${activity.replacesId}` : ''}
                                         </p>
                                     </div>
@@ -211,6 +226,7 @@ export default function ContentManagement() {
     // El formulario de creación vive aquí para no perderse al abrir una actividad y volver.
     const [creating, setCreating] = useState(false);
     const [createForm, setCreateForm] = useState(EMPTY_FORM);
+    const focusListRef = useRef(false);
     const rawId = searchParams.get('actividad');
     const activityId = rawId && /^\d+$/.test(rawId) ? rawId : null;
     // Solo se aceptan valores conocidos: una URL manipulada no filtra por algo inexistente.
@@ -234,6 +250,7 @@ export default function ContentManagement() {
     }
 
     function back(message) {
+        focusListRef.current = true;
         setFlash(message ? { type: 'ok', text: message, forList: true } : null);
         setSearchParams((prev) => {
             const next = new URLSearchParams(prev);
@@ -275,6 +292,7 @@ export default function ContentManagement() {
                 <ActivityList
                     flash={flash && flash.forList ? flash : null}
                     onFlashClose={() => setFlash(null)}
+                    focusRef={focusListRef}
                     onOpen={open}
                     filters={filters}
                     onFilter={setFilter}
