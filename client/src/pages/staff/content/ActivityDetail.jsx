@@ -27,7 +27,7 @@ import {
     useMounted
 } from '../ui';
 import ActivityFields from './ActivityFields';
-import FocusedConfirm from './FocusedConfirm';
+import FocusedConfirm from '../FocusedConfirm';
 import QuestionForm from './QuestionForm';
 import {
     GAME_LABELS,
@@ -42,6 +42,7 @@ import {
 
 // Solo quien creó el borrador puede modificarlo (el servidor responde 403 NOT_AUTHOR).
 const NOT_AUTHOR_TEXT = 'Solo su autor puede modificar este borrador.';
+const NOT_AUTHOR_IN_REVIEW_TEXT = 'Solo su autor puede retirar esta actividad de revisión.';
 
 const LIFECYCLE_ERRORS = [
     { 404: 'La actividad o la pregunta ya no existe. Vuelve a la lista para ver el estado actual.' },
@@ -343,7 +344,9 @@ export default function ActivityDetail({ id, initialNotice = null, onBack, onOpe
                     <div role="note" className="mt-4 rounded-2xl border-2 border-red-200 bg-red-50 p-4">
                         <p className="text-sm font-bold text-red-700">El revisor devolvió esta actividad con esta nota:</p>
                         <p className="mt-1 whitespace-pre-wrap break-words text-sm text-red-800">{activity.reviewNote}</p>
-                        <p className="mt-2 text-xs text-red-700">Corrige lo indicado y vuelve a enviarla a revisión.</p>
+                        {isAuthor && (
+                            <p className="mt-2 text-xs text-red-700">Corrige lo indicado y vuelve a enviarla a revisión.</p>
+                        )}
                     </div>
                 )}
 
@@ -375,7 +378,7 @@ export default function ActivityDetail({ id, initialNotice = null, onBack, onOpe
                     {activity.status === 'archived' && <p className="text-sm text-gray-500">No hay acciones disponibles.</p>}
                 </div>
                 {(isDraft || activity.status === 'in_review') && !isAuthor && (
-                    <p role="note" className="mt-2 text-sm text-gray-600">{NOT_AUTHOR_TEXT}</p>
+                    <p role="note" className="mt-2 text-sm text-gray-600">{isDraft ? NOT_AUTHOR_TEXT : NOT_AUTHOR_IN_REVIEW_TEXT}</p>
                 )}
                 {canEdit && submitBlocked && (
                     <p className="mt-2 text-xs text-gray-500">
