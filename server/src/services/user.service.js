@@ -1,6 +1,7 @@
 const pool = require('../config/db');
 const AppError = require('../utils/AppError');
-const { progressForXp } = require('./xp.service');
+const { progressForXp, XP_PER_LEVEL } = require('./xp.service');
+const game = require('./game.service');
 const { levelForGrade } = require('../config/classLevels');
 
 // El avatar es un identificador corto (ej. "default", "zorro-1"); no se guarda
@@ -28,6 +29,23 @@ function validateDisplayName(value) {
     return name;
 }
 
+// Funcion pura (sin base): arma el perfil del estudiante con el nivel segun `rules.xpPerLevel`.
+function buildStudentProfile(userId, student, rules = {}) {
+    const perLevel = rules.xpPerLevel ?? XP_PER_LEVEL;
+    return {
+        id: userId,
+        role: 'student',
+        alias: student.alias,
+        avatar: student.avatar,
+        xp: student.xp,
+        teacherId: student.teacherId,
+        classCode: student.classCode,
+        classGrade: student.classGrade ?? null,
+        classLevel: levelForGrade(student.classGrade),
+        ...progressForXp(student.xp, perLevel)
+    };
+}
+
 // Perfil del usuario autenticado. Cada quien ve solo lo suyo: nunca
 // password_hash ni datos de otros usuarios.
 async function getProfile(userId, role) {
@@ -44,19 +62,9 @@ async function getProfile(userId, role) {
         if (rows.length === 0) {
             throw new AppError('El estudiante no existe.', 404);
         }
-        const student = rows[0];
-        return {
-            id: userId,
-            role: 'student',
-            alias: student.alias,
-            avatar: student.avatar,
-            xp: student.xp,
-            teacherId: student.teacherId,
-            classCode: student.classCode,
-            classGrade: student.classGrade ?? null,
-            classLevel: levelForGrade(student.classGrade),
-            ...progressForXp(student.xp)
-        };
+        // Una sola lectura de reglas por peticion.
+        const rules = await game.getRules();
+        return buildStudentProfile(userId, rows[0], rules);
     }
 
     if (role === 'teacher') {
@@ -125,4 +133,4 @@ async function updateProfile(userId, role, data) {
     return getProfile(userId, role);
 }
 
-module.exports = { getProfile, updateProfile, validateDisplayName };
+module.exports = { getProfile, updateProfile, validateDisplayName, buildStudentProfile };

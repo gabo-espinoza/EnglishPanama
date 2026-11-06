@@ -19,8 +19,8 @@ Authorization: Bearer <token>
 | Regla | Valor |
 |---|---|
 | XP por respuesta correcta | 5 |
-| XP por nivel | 100 |
-| Nivel a partir de XP | `nivel = floor(xp / 100) + 1` |
+| XP por nivel | 100 (valor por defecto; el gestor de juego puede cambiarlo con `xpPerLevel`) |
+| Nivel a partir de XP | `nivel = floor(xp / xpPerLevel) + 1` (con el valor por defecto, `floor(xp / 100) + 1`) |
 
 Ejemplo: 8 aciertos -> 40 XP; si el estudiante tenia 100 XP, queda con 140 XP y sube a nivel 2.
 
@@ -31,6 +31,7 @@ ni a mover el ranking.
 Las respuestas que otorgan XP (intento de actividad y reto diario) y el ranking
 incluyen ademas los datos para pintar la **barra de progreso**: `xpIntoLevel`
 (XP dentro del nivel actual) y `xpForNextLevel` (XP que pide el siguiente nivel).
+Todos los endpoints que devuelven nivel (intento, reto diario, ranking, `/users/me` y la lista del docente) usan la regla `xpPerLevel` vigente, leida una vez por peticion.
 
 ## Formato de errores
 
