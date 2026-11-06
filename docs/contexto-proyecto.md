@@ -43,7 +43,7 @@ Documento de traspaso para retomar el trabajo en otra sesión o con otra persona
 
 ## 5. Estado actual
 
-**Producción hoy:** `main` en `c4eca4a` (despliegue del 22 de octubre). Migraciones `prod-upgrade-all`, `phase3` y `phase4` aplicadas; 12 actividades de ejemplo. **`phase5` y `phase6-totp-replay` NO están aplicadas todavía** y son obligatorias antes de desplegar el contenido del #26 (con el #28, sin la segunda el login con MFA responde 500).
+**Producción hoy:** `main` en `c4eca4a` (despliegue del 22 de octubre). Migraciones `prod-upgrade-all`, `phase3` y `phase4` aplicadas; 12 actividades de ejemplo. **`phase5-content-review.sql` y `phase6-totp-replay.sql` se aplicaron el 6 de noviembre de 2026** (con respaldo previo `~/backup-pre-phase5-20261106-1352.sql` en la VM-BD): las 12 actividades de ejemplo quedaron `published` y el código desplegado hoy sigue funcionando (API en línea). Siguen siendo obligatorias antes del release, y ya están hechas.
 
 **PR abiertos (todos hacia `develop`, pendientes de mergear):**
 
@@ -80,7 +80,7 @@ Orden sugerido: #28 primero (los demás se retargan solos a `develop`); #29 y #3
 - **Producción:** nunca se usa para pruebas de desarrollo. Las pruebas con base de datos corren en un contenedor Docker propio. **Crear cuentas y fijar credenciales en producción lo hace Gabriel**, no un agente.
 - **Secretos:** nunca se imprimen ni se confirman en el repositorio.
 - **Flujo con agentes:** un implementador por tarea y una revisión independiente después de cada una; modelos baratos (haiku) para lo básico y sonnet para lo difícil. Cada hallazgo importante se corrige antes de seguir. Las pruebas nuevas deben hablar con la base de datos y **fallar con el código anterior** (se comprueba revirtiendo solo el archivo corregido).
-- **La llave SSH temporal** de las VM se borra cuando se llegue al tramo final del proyecto. **La clave privada de esa llave ya no está en esta máquina** (vivía en la carpeta temporal de una sesión anterior, que se limpió): para volver a operar las VM hay que autorizar una llave nueva en ambas desde la consola de Oracle, o que Gabriel aplique los comandos él mismo.
+- **La llave SSH temporal** de las VM se borra cuando se llegue al tramo final del proyecto. **La clave anterior se perdió** (vivía en la carpeta temporal de una sesión, que se limpió). El 6 de noviembre se creó una nueva en `Escritorio\Claude SSH` (con un `LEEME.txt`), autorizada en ambas VM: se retira borrando de `~/.ssh/authorized_keys` la línea que termina en `claude-englishpanama-2026-11-06` y borrando esa carpeta.
 
 ## 8. Cómo probar
 
@@ -93,7 +93,7 @@ Orden sugerido: #28 primero (los demás se retargan solos a `develop`); #29 y #3
 ## 9. Pendientes
 
 1. **Revisar y mergear** #28, #29, #30, #32, #33 y #31 (orden de la sección 5).
-2. **Aplicar en la VM-BD `phase5-content-review.sql` y `phase6-totp-replay.sql`** (con respaldo previo), en un momento tranquilo y **antes** del release. Ver `docs/migraciones-produccion.md`. Revisar `phase6-hardening.sql` pero **no** habilitar su `uq_activity`.
+2. ~~Aplicar `phase5` y `phase6-totp-replay`~~ **Hecho el 6 de noviembre.** Queda revisar `phase6-hardening.sql` (solo su índice simple; **no** habilitar `uq_activity`) y, cuando ya no haga falta, borrar el respaldo `backup-pre-phase5-*.sql` de la VM-BD.
 3. **Verificar la `.env` de la VM-APP** (`NODE_ENV`, `JWT_SECRET`, `STAFF_JWT_SECRET`, `STAFF_MFA_KEY` de 32 bytes en base64, `AUDIT_DB_*`, `DEMO_MODE=false`) y decidir las **3 decisiones abiertas de `docs/specs/staff-fase-b.md`** (el archivo está en la rama `docs/spec-fase-b`, sin PR).
 4. **Release `develop` → `main`** (merge commit). **Desplegar entre las 00:00 y las 19:00 hora de Panamá**: quien completó el reto entre las 19:00 y la medianoche ese día podrá completarlo una vez más (detalle en `docs/migraciones-produccion.md` §16).
 5. **Cierre de privacidad (backend):** un revisor puede leer cualquier actividad por id (con la respuesta correcta); `GET /staff/reports` devuelve el alias del menor; las notas de los reportes no tienen retención ni borrado; índice único `daily_challenges(question_id)` (requiere migración).
