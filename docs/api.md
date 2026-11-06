@@ -378,7 +378,7 @@ nivel o la clase no tiene grado: `La actividad no existe.`, comprobado antes de 
 
 ### `GET /daily-challenge` - Protegido, rol `student`
 
-Devuelve el reto de hoy (calculado por fecha + offset de modo demo) y si ya fue completado.
+Devuelve el reto de hoy (calculado por la fecha de **Panama, UTC-5** + offset de modo demo) y si ya fue completado.
 
 **Respuesta 200:**
 ```json
@@ -424,8 +424,15 @@ se devuelve, ni acertando ni fallando.
 pertenece a una actividad de ese nivel. Si el docente no ha declarado el grado, o no hay retos de ese nivel,
 `GET /daily-challenge` y `POST /daily-challenge/complete` responden `404` (`No hay retos diarios configurados.`).
 El reto de hoy se calcula como `pool[dayOfYear(fecha_efectiva) % total]`,
-donde `fecha_efectiva = hoy + offset_demo`. El mismo calculo se usa para la fecha
+donde `fecha_efectiva = hoy_en_Panama + offset_demo`. El mismo calculo se usa para la fecha
 de completado, de modo que el modo demo mueve las dos cosas a la vez.
+
+*Dia de Panama:* "hoy" es la fecha en `America/Panama` (UTC-5 fijo, sin horario de verano), no la fecha UTC:
+el reto cambia a las 00:00 de Panama (05:00 UTC). Un estudiante que completa el reto a las 22:00 de Panama no
+puede repetirlo a las 23:30, y si a las 00:30 del dia siguiente. La fecha se calcula en el servidor de
+aplicaciones (`utils/day.js`) y se envia a MySQL como parametro (`completed_on`, `DATE`); no depende de la zona
+horaria de la sesion de MySQL ni de `CURDATE()`. El campo `date` de `GET /daily-challenge` y `completedOn` de la
+respuesta de `POST /daily-challenge/complete` son esa fecha de Panama.
 
 ---
 
@@ -759,7 +766,7 @@ tipo de juego (`memory`, `multiple_choice`, `sentence_order`, `fill_blank`).
 | `PUT /aliases/:studentId` | `{ hidden }` (booleano obligatorio; otro valor da 400) oculta un alias: el ranking muestra "Jugador oculto" y conserva la posicion |
 | `GET /daily-challenges` | Pool del reto diario |
 | `POST /daily-challenges` | Agrega una pregunta al pool |
-| `DELETE /daily-challenges/:id` | Quita un reto del pool. Responde 409 `CHALLENGE_COMPLETED_TODAY` si alguien ya lo completo hoy (el borrado en cascada eliminaria esos registros y permitiria repetirlo) |
+| `DELETE /daily-challenges/:id` | Quita un reto del pool. Responde 409 `CHALLENGE_COMPLETED_TODAY` si alguien ya lo completo hoy (dia de Panama) (el borrado en cascada eliminaria esos registros y permitiria repetirlo) |
 
 Las reglas viven en `app_settings` y las consultan `activity.service.js`,
 `dailyChallenge.service.js` y `xp.service.js`; si no existen, se usan los

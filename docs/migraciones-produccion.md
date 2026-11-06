@@ -700,3 +700,18 @@ control A (sección 5.4).
 - [ ] `phase6-hardening.sql` revisado; `UNIQUE` solo si no hay duplicados
 - [ ] Comprobación de columnas y tablas anterior correcta
 - [ ] `DB_PORT` presente en el `.env` de la VM-APP (o dejar el default 3306)
+
+## 16. Cambio de "día" del reto diario: de UTC a hora de Panama
+
+El día del reto diario pasa de ser el día UTC a ser el día de Panama (UTC-5 fijo, sin horario de verano). Antes, en Panamá el reto cambiaba a las 19:00 locales; ahora cambia a las 00:00 locales (05:00 UTC). El día se calcula en Node (`server/src/utils/day.js`) y se envía a MySQL como parámetro, así que no depende de la zona horaria de la sesión de MySQL.
+
+**No hay migración de esquema ni de datos.** `daily_completions.completed_on` sigue siendo `DATE`; solo cambia cómo se calcula el valor que se escribe.
+
+**Qué pasa el día del despliegue.** Las filas existentes de `completed_on` se escribieron como fechas UTC. Si se despliega durante el día, el efecto es el siguiente, dicho sin rodeos:
+
+- Un estudiante que completó el reto **entre las 19:00 y las 24:00 de Panama** del día del despliegue (fila con la fecha UTC del día siguiente) queda con `completed_on` = día siguiente. Tras el despliegue, "hoy" en Panamá sigue siendo el día actual, así que esa fila no cuenta como "hoy" y el estudiante **puede completar el reto una vez más** (y cobrar sus 10 XP otra vez) ese mismo día de Panamá. El reto de esa noche también puede ser distinto, porque el índice del pool usa el día del año.
+- Quien completó antes de las 19:00 de Panama no se ve afectado: su fecha UTC y su fecha de Panama coinciden.
+- El efecto es de una sola vez, acotado a esa ventana y como máximo un reto extra (10 XP) por estudiante. No se migran datos: reescribir fechas no es trivial ni seguro (un `UPDATE` a `completed_on - 1 día` chocaría con la restricción `UNIQUE (student_id, completed_on)` en estudiantes con filas de días consecutivos).
+- Para no tener ni ese caso, desplegar entre las 00:00 y las 19:00 de Panama (05:00 a 24:00 UTC).
+
+**Pruebas:** `server/tests/daily-challenge-panama-day.test.js` (reloj congelado) y `server/tests/day.test.js`.

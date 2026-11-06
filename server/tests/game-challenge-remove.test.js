@@ -3,7 +3,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fx = require('./helpers/fixtures');
-const { addDaysUtc, toDateOnlyUtc } = require('../src/utils/day');
+const { effectiveDay } = require('../src/utils/day');
+const clock = require('../src/utils/clock');
 const { getDemoDayOffset } = require('../src/services/settings.service');
 
 let ctx; let gm; let teacher; let student; let activityId;
@@ -26,7 +27,7 @@ async function newChallenge() {
     const [c] = await fx.pool.query('INSERT INTO daily_challenges (question_id, position) VALUES (?, 9999)', [q.insertId]);
     return c.insertId;
 }
-const todayEffective = async () => toDateOnlyUtc(addDaysUtc(new Date(), await getDemoDayOffset()));
+const todayEffective = async () => effectiveDay(clock.now(), await getDemoDayOffset()).date;
 
 test('quitar un reto completado hoy se rechaza y conserva los registros', async (t) => {
     if (!ctx.ready) return t.skip('sin MySQL');

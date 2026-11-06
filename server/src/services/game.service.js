@@ -6,7 +6,8 @@ const AppError = require('../utils/AppError');
 const audit = require('./audit.service');
 const { parseId } = require('../utils/ids');
 const { getSetting, getDemoDayOffset } = require('./settings.service');
-const { addDaysUtc, toDateOnlyUtc } = require('../utils/day');
+const { effectiveDay } = require('../utils/day');
+const clock = require('../utils/clock');
 
 const RULE_KEYS = {
     xpPerCorrect: 'rule_xp_per_correct',
@@ -161,7 +162,7 @@ async function removeDailyChallenge(actor, id) {
     // registros de quienes ya lo completaron y podrian repetirlo y cobrar el XP otra vez.
     // Mientras haya completados de hoy (con el mismo dia efectivo que usa el reto diario,
     // incluido el desplazamiento del modo demo) el reto no se puede quitar.
-    const today = toDateOnlyUtc(addDaysUtc(new Date(), await getDemoDayOffset()));
+    const today = effectiveDay(clock.now(), await getDemoDayOffset()).date;
     const [done] = await pool.query(
         'SELECT 1 FROM daily_completions WHERE challenge_id = ? AND completed_on >= ? LIMIT 1',
         [n, today]

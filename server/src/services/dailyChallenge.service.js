@@ -5,22 +5,22 @@ const { progressForXp } = require('./xp.service');
 const { getClassLevelForStudent } = require('./classLevel.service');
 const { normalizeAnswer } = require('../utils/answers');
 const game = require('./game.service');
-const { addDaysUtc, toDateOnlyUtc, dayOfYearUtc } = require('../utils/day');
+const { effectiveDay } = require('../utils/day');
+const clock = require('../utils/clock');
 
 // XP que otorga completar el reto diario.
 const DAILY_CHALLENGE_XP = 10;
 // Largo maximo de la respuesta que se acepta (las opciones reales son cortas).
 const MAX_ANSWER_LENGTH = 200;
 
-// Fecha "efectiva": la fecha real desplazada por el offset del modo demo.
+// Fecha "efectiva": la fecha de Panama (UTC-5) desplazada por el offset del modo demo.
 // Tanto el reto de hoy como la fecha de completado usan siempre esta fecha,
 // de modo que el modo demo mueve las dos cosas a la vez.
 // El conjunto de retos se filtra por el nivel de la clase del estudiante; sin grado o sin
 // retos de ese nivel el conjunto queda vacio y se responde igual que con el pool vacio.
 async function resolveTodayChallenge(studentId) {
     const offset = await getDemoDayOffset();
-    const effectiveDate = addDaysUtc(new Date(), offset);
-    const completedOn = toDateOnlyUtc(effectiveDate);
+    const { date: completedOn, dayOfYear } = effectiveDay(clock.now(), offset);
 
     const level = await getClassLevelForStudent(studentId);
     let poolRows = [];
@@ -39,7 +39,7 @@ async function resolveTodayChallenge(studentId) {
         throw new AppError('No hay retos diarios configurados.', 404);
     }
 
-    const index = dayOfYearUtc(effectiveDate) % poolRows.length;
+    const index = dayOfYear % poolRows.length;
     const challenge = poolRows[index];
 
     return { challenge, completedOn, offset };
