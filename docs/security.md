@@ -57,7 +57,7 @@ y auditoria).
 | XSS | El backend solo devuelve JSON; React escapa el texto por defecto. No se renderiza HTML crudo. |
 | Ver contenido de otro nivel | El filtro por nivel de la clase se aplica **en el servidor**, en la consulta SQL (`level = ?`), nunca en el cliente: listado, preguntas, intentos y reto diario usan el nivel que sale de la base (`classLevel.service.js`), no uno enviado por el cliente. |
 | Datos personales de menores | Los estudiantes se identifican con un alias; el ranking expone solo alias/avatar/XP/nivel. |
-| Reutilizacion de reto diario | Restriccion unica `(student_id, completed_on)` en la base; el duplicado responde `409`. |
+| Reutilizacion de reto diario | Restriccion unica `(student_id, completed_on)` en la base; el duplicado responde `409`. El "dia" es el de Panama (UTC-5, `utils/day.js`), calculado en el servidor de aplicaciones y enviado como parametro; no depende de la zona horaria de MySQL. |
 | Tokens falsificados | JWT firmado con `JWT_SECRET`; token invalido o expirado responde `401`. |
 | CORS abierto en produccion | Se puede restringir con la variable `CORS_ORIGIN` (lista de origenes permitidos). |
 | IP falsificada para evadir limites | `trust proxy` se activa solo con `TRUST_PROXY=true` (cuando hay Nginx delante). |

@@ -180,6 +180,9 @@ test('el reto temporal no abre rutas protegidas (401)', async (t) => {
 
 test('un codigo TOTP correcto completa el login y el JWT abre el perfil', async (t) => {
     if (!ready) { t.skip('sin MySQL o claves'); return; }
+    // El codigo de la vinculacion ya se consumio (anti-replay): se simula el codigo del
+    // siguiente intervalo reiniciando el contador.
+    await pool.query('UPDATE users SET mfa_last_counter = NULL WHERE id = ?', [student.id]);
     const { mfaToken } = await (await login(student)).json();
 
     const res = await loginMfa(mfaToken, totp.generateToken(student.secret));

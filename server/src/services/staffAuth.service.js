@@ -53,7 +53,9 @@ function invalidCredentials() {
     return new AppError('Usuario, contrasena o codigo incorrectos.', 401);
 }
 
-// Anti-replay del TOTP del personal: mismo mecanismo atomico que en plataforma.
+// Anti-replay del TOTP del personal: mismo mecanismo atomico que en plataforma. Falla
+// CERRADO: un error del UPDATE (p. ej. falta la migracion phase6-totp-replay.sql) se
+// propaga como 500 y el codigo no se acepta.
 async function consumeStaffTotp(account, code) {
     let secret;
     try {
@@ -63,16 +65,11 @@ async function consumeStaffTotp(account, code) {
     }
     const counter = totp.matchCounter(secret, code);
     if (counter === null) return false;
-    try {
-        const [result] = await pool.query(
-            'UPDATE staff_accounts SET mfa_last_counter = ? WHERE id = ? AND (mfa_last_counter IS NULL OR mfa_last_counter < ?)',
-            [counter, account.id, counter]
-        );
-        return result.affectedRows === 1;
-    } catch (err) {
-        console.error('[mfa] no se pudo registrar el contador TOTP del personal:', err.message);
-        return true;
-    }
+    const [result] = await pool.query(
+        'UPDATE staff_accounts SET mfa_last_counter = ? WHERE id = ? AND (mfa_last_counter IS NULL OR mfa_last_counter < ?)',
+        [counter, account.id, counter]
+    );
+    return result.affectedRows === 1;
 }
 
 async function login({ username, password, totp: code, ip }) {

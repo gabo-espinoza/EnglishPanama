@@ -19,8 +19,8 @@ Authorization: Bearer <token>
 | Regla | Valor |
 |---|---|
 | XP por respuesta correcta | 5 |
-| XP por nivel | 100 |
-| Nivel a partir de XP | `nivel = floor(xp / 100) + 1` |
+| XP por nivel | 100 (valor por defecto; el gestor de juego puede cambiarlo con `xpPerLevel`) |
+| Nivel a partir de XP | `nivel = floor(xp / xpPerLevel) + 1` (con el valor por defecto, `floor(xp / 100) + 1`) |
 
 Ejemplo: 8 aciertos -> 40 XP; si el estudiante tenia 100 XP, queda con 140 XP y sube a nivel 2.
 
@@ -31,6 +31,7 @@ ni a mover el ranking.
 Las respuestas que otorgan XP (intento de actividad y reto diario) y el ranking
 incluyen ademas los datos para pintar la **barra de progreso**: `xpIntoLevel`
 (XP dentro del nivel actual) y `xpForNextLevel` (XP que pide el siguiente nivel).
+Todos los endpoints que devuelven nivel (intento, reto diario, ranking, `/users/me` y la lista del docente) usan la regla `xpPerLevel` vigente, leida una vez por peticion.
 
 ## Formato de errores
 
@@ -195,7 +196,9 @@ gestor de accesos le reinicia el MFA (`POST /staff/teachers/:id/reset-mfa`) y de
 
 Un codigo TOTP incorrecto cuenta para el bloqueo de 3 intentos / 10 segundos en
 `POST /auth/login/mfa`, en `POST /auth/mfa/setup` (al volver a vincular) y en
-`POST /auth/mfa/confirm`. Todas estas rutas tienen ademas el limite de intentos de
+`POST /auth/mfa/confirm`. Con la cuenta bloqueada, esas dos rutas responden 401 sin mirar el
+codigo (igual que el login), y ambas consumen el contador TOTP: un codigo ya usado se rechaza.
+Todas estas rutas tienen ademas el limite de intentos de
 autenticacion por IP, y los intentos fallidos quedan registrados en la auditoria.
 
 #### `POST /auth/login/mfa` - publico
@@ -375,7 +378,7 @@ nivel o la clase no tiene grado: `La actividad no existe.`, comprobado antes de 
 
 ### `GET /daily-challenge` - Protegido, rol `student`
 
-Devuelve el reto de hoy (calculado por fecha + offset de modo demo) y si ya fue completado.
+Devuelve el reto de hoy (calculado por la fecha de **Panama, UTC-5** + offset de modo demo) y si ya fue completado.
 
 **Respuesta 200:**
 ```json
@@ -421,8 +424,15 @@ se devuelve, ni acertando ni fallando.
 pertenece a una actividad de ese nivel. Si el docente no ha declarado el grado, o no hay retos de ese nivel,
 `GET /daily-challenge` y `POST /daily-challenge/complete` responden `404` (`No hay retos diarios configurados.`).
 El reto de hoy se calcula como `pool[dayOfYear(fecha_efectiva) % total]`,
-donde `fecha_efectiva = hoy + offset_demo`. El mismo calculo se usa para la fecha
+donde `fecha_efectiva = hoy_en_Panama + offset_demo`. El mismo calculo se usa para la fecha
 de completado, de modo que el modo demo mueve las dos cosas a la vez.
+
+*Dia de Panama:* "hoy" es la fecha en `America/Panama` (UTC-5 fijo, sin horario de verano), no la fecha UTC:
+el reto cambia a las 00:00 de Panama (05:00 UTC). Un estudiante que completa el reto a las 22:00 de Panama no
+puede repetirlo a las 23:30, y si a las 00:30 del dia siguiente. La fecha se calcula en el servidor de
+aplicaciones (`utils/day.js`) y se envia a MySQL como parametro (`completed_on`, `DATE`); no depende de la zona
+horaria de la sesion de MySQL ni de `CURDATE()`. El campo `date` de `GET /daily-challenge` y `completedOn` de la
+respuesta de `POST /daily-challenge/complete` son esa fecha de Panama.
 
 ---
 
@@ -435,9 +445,14 @@ Devuelve el ranking de la clase del estudiante autenticado (por `teacher_id`), o
 **Respuesta 200:**
 ```json
 [
-  { "position": 1, "alias": "dani_88", "avatar": "default", "xp": 140, "level": 2, "xpIntoLevel": 40, "xpForNextLevel": 100 }
+  { "position": 1, "isMe": true, "alias": "dani_88", "avatar": "default", "xp": 140, "level": 2, "xpIntoLevel": 40, "xpForNextLevel": 100 }
 ]
 ```
+
+`isMe` (booleano) es `true` solo en la fila del estudiante autenticado. Un alias oculto por el
+gestor del juego se muestra como `"Jugador oculto"` para todos, **incluido el propio estudiante**,
+asi que el cliente debe usar `isMe` (no comparar el alias) para resaltar "Tu" y usar `position`
+como clave de lista (los alias ocultos se repiten). El id del estudiante nunca se expone.
 
 ---
 
@@ -746,21 +761,22 @@ tipo de juego (`memory`, `multiple_choice`, `sentence_order`, `fill_blank`).
 | Metodo y ruta | Que hace |
 |---|---|
 | `GET /rules` | Reglas vigentes de XP |
-| `PUT /rules` | Edita `xpPerCorrect` (1-50), `xpPerLevel` (10-1000) y `dailyChallengeXp` (1-100) |
+| `PUT /rules` | Edita `xpPerCorrect` (1-50), `xpPerLevel` (10-1000) y `dailyChallengeXp` (1-100). Es parcial: solo cambian las claves enviadas (enteros JSON; claves desconocidas o cuerpo vacio dan 400) y se guardan de forma atomica. Devuelve las reglas vigentes completas |
 | `GET /aliases` | Catalogo de alias del ranking |
-| `PUT /aliases/:studentId` | `{ hidden }` oculta un alias: el ranking muestra "Jugador oculto" y conserva la posicion |
+| `PUT /aliases/:studentId` | `{ hidden }` (booleano obligatorio; otro valor da 400) oculta un alias: el ranking muestra "Jugador oculto" y conserva la posicion |
 | `GET /daily-challenges` | Pool del reto diario |
-| `POST /daily-challenges` | Agrega una pregunta al pool |
-| `DELETE /daily-challenges/:id` | Quita un reto del pool |
+| `GET /questions` | Buscador de preguntas para armar el pool. Solo actividades **publicadas** y sin las de tipo `sentence_order` (no sirven como reto diario). Filtros opcionales `module` (`vocabulary`, `grammar`, `reading`), `level` (`A1.1`, `A1.2`, `A1.3`), `q` (texto contenido en la pregunta, sin distinguir mayusculas, hasta 100 caracteres) y `limit` (por defecto 50, maximo 100). Devuelve un arreglo de `{ id, activityId, activityTitle, module, level, gameType, text }`; nunca la respuesta correcta ni las opciones. Valores invalidos dan 400 |
+| `POST /daily-challenges` | `{ questionId, position? }` agrega una pregunta al pool. 404 si no existe; 409 `QUESTION_NOT_PUBLISHED` si su actividad no esta publicada; 409 `QUESTION_TYPE_NOT_SUPPORTED` si es de una actividad `sentence_order` (su respuesta es un orden y el reto diario se responde con una sola opcion; el buscador `GET /questions` tampoco las lista); 409 `QUESTION_ALREADY_IN_POOL` si ya está en la lista de retos diarios. La comprobacion y el alta son atomicas (transaccion que bloquea la fila de la pregunta) |
+| `DELETE /daily-challenges/:id` | Quita un reto del pool. Responde 409 `CHALLENGE_COMPLETED_TODAY` si alguien ya lo completo hoy (dia de Panama) (el borrado en cascada eliminaria esos registros y permitiria repetirlo) |
 
 Las reglas viven en `app_settings` y las consultan `activity.service.js`,
 `dailyChallenge.service.js` y `xp.service.js`; si no existen, se usan los
 valores originales (5 / 100 / 10).
 
 > **Nota de alcance:** los paneles del cliente (`/staff/content`, `/staff/review`,
-> `/staff/game`, `/staff/moderation`, `/staff/support`) son trabajo del equipo de
-> frontend. El backend expone los contratos de esta seccion; `ROLE_SECTIONS` en
-> `client/src/pages/staff/StaffLayout.jsx` aun debe ampliarse para mostrarlos.
+> `/staff/game`, `/staff/moderation`, `/staff/support`) ya existen en
+> `client/src/pages/staff/` y `ROLE_SECTIONS` en `client/src/pages/staff/StaffLayout.jsx`
+> ya los asigna a cada rol. El backend expone los contratos de esta seccion.
 
 ---
 
