@@ -110,6 +110,18 @@ const ALLOWED_DECISIONS = {
     content_manager: ['resolve', 'dismiss']
 };
 
+// Bandeja de decision de cada rol: que reportes puede cerrar o escalar.
+//  - support y moderator solo atienden los reportes ABIERTOS de su tipo.
+//  - content_manager solo atiende lo que se le escalo (status = escalated).
+// Un reporte fuera de la bandeja del rol responde 404 (igual que si no existiera) y queda
+// auditado como denied; no se revela si el id existe en otra bandeja.
+function decisionInbox(role) {
+    if (role === 'support') return { kind: 'error', status: 'open' };
+    if (role === 'moderator') return { kind: 'inappropriate', status: 'open' };
+    if (role === 'content_manager') return { status: 'escalated' };
+    return null;
+}
+
 async function decide(actor, id, decision) {
     const allowed = ALLOWED_DECISIONS[actor.role];
     if (!allowed || !allowed.includes(decision)) {
@@ -119,15 +131,31 @@ async function decide(actor, id, decision) {
         });
         throw new AppError('No puedes realizar esa accion sobre el reporte.', 403);
     }
+    const inbox = decisionInbox(actor.role);
     const next = decision === 'escalate' ? 'escalated'
         : decision === 'resolve' ? 'resolved' : 'dismissed';
+    const where = ['id = ?'];
+    const params = [next, actor.id, id];
+    if (inbox.kind) { where.push('kind = ?'); params.push(inbox.kind); }
+    where.push('status = ?'); params.push(inbox.status);
     const [result] = await pool.query(
         `UPDATE content_reports SET status = ?, handled_by = ?
-         WHERE id = ? AND status IN ('open','escalated')`,
-        [next, actor.id, id]
+         WHERE ${where.join(' AND ')}`,
+        params
     );
     if (result.affectedRows === 0) {
-        throw new AppError('El reporte no existe o ya fue atendido.', 409, 'REPORT_CLOSED');
+        const [rows] = await pool.query('SELECT kind, status FROM content_reports WHERE id = ?', [id]);
+        const row = rows[0];
+        // support y moderator ven todos los estados de su tipo: ahi un reporte ya atendido es 409.
+        const inScope = row && (inbox.kind ? row.kind === inbox.kind : row.status === inbox.status);
+        if (inScope) {
+            throw new AppError('El reporte ya fue atendido.', 409, 'REPORT_CLOSED');
+        }
+        await audit.record({
+            actorType: 'staff', actorId: actor.id, actorRole: actor.role,
+            action: 'content.report.decide', target: `report:${id}`, outcome: 'denied'
+        });
+        throw new AppError('El reporte no existe.', 404);
     }
     await audit.record({
         actorType: 'staff', actorId: actor.id, actorRole: actor.role,
@@ -136,4 +164,4 @@ async function decide(actor, id, decision) {
     return { id, status: next };
 }
 
-module.exports = { KINDS, STATUSES, cleanNote, positiveInt, createReport, scopeForRole, listReports, decide };
+module.exports = { KINDS, STATUSES, cleanNote, positiveInt, createReport, scopeForRole, decisionInbox, listReports, decide };

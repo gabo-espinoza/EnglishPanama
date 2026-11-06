@@ -51,6 +51,8 @@ test.before(async () => {
 test.after(async () => {
     server.close();
     try { await pool.end(); } catch { /* sin conexiones */ }
+    // El login fallido de una cuenta inexistente ahora tambien audita y abre el pool de auditoria.
+    try { await require('../src/config/auditDb').closeAuditPool(); } catch { /* sin conexiones */ }
 });
 
 function token(role, id = 1) {

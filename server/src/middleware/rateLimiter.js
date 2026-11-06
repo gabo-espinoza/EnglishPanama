@@ -53,7 +53,8 @@ const demoLimiter = rateLimit({
 });
 
 // Un estudiante o docente no puede inundar la bandeja de reportes. Se cuenta
-// por cuenta autenticada, no por IP (un salon comparte la IP publica).
+// por cuenta autenticada, no por IP (un salon comparte la IP publica). Debe montarse
+// DESPUES de requireAuth: sin req.user la clave cae a la IP.
 const reportLimiter = rateLimit({
     windowMs: 60 * 60 * 1000, // 1 hora
     max: 5,

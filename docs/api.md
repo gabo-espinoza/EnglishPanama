@@ -195,7 +195,9 @@ gestor de accesos le reinicia el MFA (`POST /staff/teachers/:id/reset-mfa`) y de
 
 Un codigo TOTP incorrecto cuenta para el bloqueo de 3 intentos / 10 segundos en
 `POST /auth/login/mfa`, en `POST /auth/mfa/setup` (al volver a vincular) y en
-`POST /auth/mfa/confirm`. Todas estas rutas tienen ademas el limite de intentos de
+`POST /auth/mfa/confirm`. Con la cuenta bloqueada, esas dos rutas responden 401 sin mirar el
+codigo (igual que el login), y ambas consumen el contador TOTP: un codigo ya usado se rechaza.
+Todas estas rutas tienen ademas el limite de intentos de
 autenticacion por IP, y los intentos fallidos quedan registrados en la auditoria.
 
 #### `POST /auth/login/mfa` - publico
@@ -435,9 +437,14 @@ Devuelve el ranking de la clase del estudiante autenticado (por `teacher_id`), o
 **Respuesta 200:**
 ```json
 [
-  { "position": 1, "alias": "dani_88", "avatar": "default", "xp": 140, "level": 2, "xpIntoLevel": 40, "xpForNextLevel": 100 }
+  { "position": 1, "isMe": true, "alias": "dani_88", "avatar": "default", "xp": 140, "level": 2, "xpIntoLevel": 40, "xpForNextLevel": 100 }
 ]
 ```
+
+`isMe` (booleano) es `true` solo en la fila del estudiante autenticado. Un alias oculto por el
+gestor del juego se muestra como `"Jugador oculto"` para todos, **incluido el propio estudiante**,
+asi que el cliente debe usar `isMe` (no comparar el alias) para resaltar "Tu" y usar `position`
+como clave de lista (los alias ocultos se repiten). El id del estudiante nunca se expone.
 
 ---
 
@@ -746,12 +753,12 @@ tipo de juego (`memory`, `multiple_choice`, `sentence_order`, `fill_blank`).
 | Metodo y ruta | Que hace |
 |---|---|
 | `GET /rules` | Reglas vigentes de XP |
-| `PUT /rules` | Edita `xpPerCorrect` (1-50), `xpPerLevel` (10-1000) y `dailyChallengeXp` (1-100) |
+| `PUT /rules` | Edita `xpPerCorrect` (1-50), `xpPerLevel` (10-1000) y `dailyChallengeXp` (1-100). Es parcial: solo cambian las claves enviadas (enteros JSON; claves desconocidas o cuerpo vacio dan 400) y se guardan de forma atomica. Devuelve las reglas vigentes completas |
 | `GET /aliases` | Catalogo de alias del ranking |
-| `PUT /aliases/:studentId` | `{ hidden }` oculta un alias: el ranking muestra "Jugador oculto" y conserva la posicion |
+| `PUT /aliases/:studentId` | `{ hidden }` (booleano obligatorio; otro valor da 400) oculta un alias: el ranking muestra "Jugador oculto" y conserva la posicion |
 | `GET /daily-challenges` | Pool del reto diario |
 | `POST /daily-challenges` | Agrega una pregunta al pool |
-| `DELETE /daily-challenges/:id` | Quita un reto del pool |
+| `DELETE /daily-challenges/:id` | Quita un reto del pool. Responde 409 `CHALLENGE_COMPLETED_TODAY` si alguien ya lo completo hoy (el borrado en cascada eliminaria esos registros y permitiria repetirlo) |
 
 Las reglas viven en `app_settings` y las consultan `activity.service.js`,
 `dailyChallenge.service.js` y `xp.service.js`; si no existen, se usan los

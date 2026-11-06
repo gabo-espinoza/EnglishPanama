@@ -1,5 +1,6 @@
 // Fase C: reportes. Un router publico (estudiantes/docentes) y otro de gestion.
 const reports = require('../services/reports.service');
+const { parseId } = require('../utils/ids');
 
 function wrap(fn) {
     return async (req, res, next) => {
@@ -23,7 +24,7 @@ const list = wrap((req) => reports.listReports({
 }));
 
 const decide = wrap((req) => reports.decide(
-    req.staff, Number(req.params.id), (req.body || {}).decision
+    req.staff, parseId(req.params.id, 'El reporte'), (req.body || {}).decision
 ));
 
 module.exports = { create, list, decide };

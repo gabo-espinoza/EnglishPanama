@@ -38,6 +38,6 @@ test('solo expone alias, avatar, XP y progreso: nunca datos personales', () => {
     const [r] = buildRanking([
         { alias: 'ana', avatar: 'fox', xp: 10, teacher_id: 7, password_hash: 'x', correct_answer: 'lima' }
     ]);
-    assert.deepEqual(Object.keys(r).sort(), ['alias', 'avatar', 'level', 'position', 'xp', 'xpForNextLevel', 'xpIntoLevel']);
+    assert.deepEqual(Object.keys(r).sort(), ['alias', 'avatar', 'isMe', 'level', 'position', 'xp', 'xpForNextLevel', 'xpIntoLevel']);
     assert.ok(!('teacher_id' in r) && !('password_hash' in r) && !('correct_answer' in r));
 });
