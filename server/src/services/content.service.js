@@ -72,6 +72,15 @@ function assertStatus(activity, expected, action) {
     }
 }
 
+// Solo quien creo el borrador puede modificarlo (autoria): otro gestor recibe 403 NOT_AUTHOR.
+// Una actividad sin autor (sembrada) no la edita nadie por estas rutas. Se llama DESPUES de
+// comprobar el estado, asi un estado no editable sigue respondiendo 409 INVALID_STATE.
+function assertAuthor(activity, actor) {
+    if (activity.author_id === null || Number(activity.author_id) !== Number(actor.id)) {
+        throw new AppError('Solo quien creo el borrador puede modificarlo.', 403, 'NOT_AUTHOR');
+    }
+}
+
 async function record(actor, action, target, outcome) {
     await audit.record({
         actorType: 'staff', actorId: actor.id, actorRole: actor.role,
@@ -214,6 +223,7 @@ async function updateActivity(actor, id, body) {
     const fields = validateActivityFields(body || {}, true);
     return withLockedActivity(id, actor, 'update', async (conn, activity) => {
         assertStatus(activity, 'draft', 'editar');
+        assertAuthor(activity, actor);
         const mid = fields.moduleSlug ? await moduleId(conn, fields.moduleSlug) : activity.module_id;
         await conn.query(
             `UPDATE activities SET module_id = ?, title = ?, game_type = ?, level = ?, passage_text = ?
@@ -235,6 +245,7 @@ async function addQuestion(actor, id, body) {
     // El tipo de juego se toma de la actividad (autoridad), no del cuerpo.
     return withLockedActivity(id, actor, 'question.create', async (conn, activity) => {
         assertStatus(activity, 'draft', 'agregar preguntas');
+        assertAuthor(activity, actor);
         const question = validateQuestionShape(activity.game_type, body);
         await conn.query(
             'INSERT INTO questions (activity_id, topic, prompt, options, correct_answer) VALUES (?, ?, ?, ?, ?)',
@@ -247,6 +258,7 @@ async function addQuestion(actor, id, body) {
 async function updateQuestion(actor, id, qid, body) {
     return withLockedActivity(id, actor, 'question.update', async (conn, activity) => {
         assertStatus(activity, 'draft', 'editar preguntas');
+        assertAuthor(activity, actor);
         const [rows] = await conn.query('SELECT id FROM questions WHERE id = ? AND activity_id = ?', [qid, id]);
         if (rows.length === 0) throw new AppError('La pregunta no existe.', 404);
         const question = validateQuestionShape(activity.game_type, body);
@@ -261,6 +273,7 @@ async function updateQuestion(actor, id, qid, body) {
 async function deleteQuestion(actor, id, qid) {
     return withLockedActivity(id, actor, 'question.delete', async (conn, activity) => {
         assertStatus(activity, 'draft', 'borrar preguntas');
+        assertAuthor(activity, actor);
         const [result] = await conn.query('DELETE FROM questions WHERE id = ? AND activity_id = ?', [qid, id]);
         if (result.affectedRows === 0) throw new AppError('La pregunta no existe.', 404);
         return getActivity(id, conn);
@@ -270,6 +283,7 @@ async function deleteQuestion(actor, id, qid) {
 async function deleteActivity(actor, id) {
     return withLockedActivity(id, actor, 'delete', async (conn, activity) => {
         assertStatus(activity, 'draft', 'borrar');
+        assertAuthor(activity, actor);
         await conn.query('DELETE FROM questions WHERE activity_id = ?', [id]);
         await conn.query('DELETE FROM activities WHERE id = ?', [id]);
         return { deleted: true };
@@ -279,6 +293,7 @@ async function deleteActivity(actor, id) {
 async function submit(actor, id) {
     return withLockedActivity(id, actor, 'submit', async (conn, activity) => {
         assertStatus(activity, 'draft', 'enviar a revision');
+        assertAuthor(activity, actor);
         const [questions] = await conn.query(
             'SELECT topic, prompt, options, correct_answer AS correctAnswer FROM questions WHERE activity_id = ?',
             [id]
@@ -303,6 +318,7 @@ async function submit(actor, id) {
 async function withdraw(actor, id) {
     return withLockedActivity(id, actor, 'withdraw', async (conn, activity) => {
         assertStatus(activity, 'in_review', 'retirar de revision');
+        assertAuthor(activity, actor);
         await conn.query("UPDATE activities SET status = 'draft' WHERE id = ?", [id]);
         return getActivity(id, conn);
     });
@@ -375,7 +391,7 @@ async function reject(actor, id, body) {
 
 module.exports = {
     MODULE_SLUGS, GAME_TYPES, STATUSES, LEVELS,
-    cleanText, validateQuestionShape, assertStatus,
+    cleanText, validateQuestionShape, assertStatus, assertAuthor,
     listActivities, getActivity, createActivity, updateActivity,
     addQuestion, updateQuestion, deleteQuestion, deleteActivity,
     submit, withdraw, revision, archive, approve, reject
