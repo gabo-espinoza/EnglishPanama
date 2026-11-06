@@ -29,7 +29,7 @@ figuren ahí.
 | Actividades | Corrección en servidor, `correct_answer` nunca sale, **XP una sola vez por actividad** (anti-trampa) | PDF diseño §3 |
 | XP / niveles | Reglas 5 XP por acierto / 100 XP por nivel, con pruebas de límites | `docs/api.md` |
 | Ranking | Solo alias/avatar/XP/nivel, sin datos personales; función pura con pruebas de empates | PDF diseño §2.1 |
-| Reto diario | Califica la respuesta en servidor, 10 XP solo si es correcta, `409` si ya se completó, **fecha en UTC**, **límite de 10 intentos por estudiante y día** | PR #22; `docs/api.md` |
+| Reto diario | Califica la respuesta en servidor, 10 XP solo si es correcta, `409` si ya se completó, **dia de Panama (UTC-5)**, **límite de 10 intentos por estudiante y día** | PR #22; `docs/api.md` |
 | Panel docente | `/teacher/class`, `/students`, `/difficult-topics`, `PUT /class/grade` (una vez, `GRADE_LOCKED`); **declarar el grado queda en auditoría** | PDF diseño §4.1 |
 | Modo demo | `POST /demo/advance-day` con `DEMO_MODE=true`, incremento **atómico**, auditado y con límite de 30/día | PDF diseño §5.7 |
 | Pruebas | 14 archivos sin base de datos (**66 pruebas**) y, con MySQL 8 local, la suite completa de **27 archivos: 238 pruebas, 237 aprobadas, 0 fallidas, 1 omitida**. Ver sección 6 | PDF diseño §5.6/§5.8 |

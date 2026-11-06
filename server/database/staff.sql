@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS staff_accounts (
     failed_attempts  TINYINT UNSIGNED NOT NULL DEFAULT 0,
     locked_until     DATETIME NULL,
     created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    mfa_last_counter BIGINT UNSIGNED NULL DEFAULT NULL,
     UNIQUE KEY uq_staff_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
