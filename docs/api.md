@@ -757,8 +757,8 @@ tipo de juego (`memory`, `multiple_choice`, `sentence_order`, `fill_blank`).
 | `GET /aliases` | Catalogo de alias del ranking |
 | `PUT /aliases/:studentId` | `{ hidden }` (booleano obligatorio; otro valor da 400) oculta un alias: el ranking muestra "Jugador oculto" y conserva la posicion |
 | `GET /daily-challenges` | Pool del reto diario |
-| `GET /questions` | Buscador de preguntas para armar el pool. Solo actividades **publicadas**. Filtros opcionales `module` (`vocabulary`, `grammar`, `reading`), `level` (`A1.1`, `A1.2`, `A1.3`), `q` (texto contenido en la pregunta, sin distinguir mayusculas, hasta 100 caracteres) y `limit` (por defecto 50, maximo 100). Devuelve un arreglo de `{ id, activityId, activityTitle, module, level, gameType, text }`; nunca la respuesta correcta ni las opciones. Valores invalidos dan 400 |
-| `POST /daily-challenges` | `{ questionId, position? }` agrega una pregunta al pool. 404 si no existe; 409 `QUESTION_NOT_PUBLISHED` si su actividad no esta publicada; 409 `QUESTION_ALREADY_IN_POOL` si ya esta en el pool |
+| `GET /questions` | Buscador de preguntas para armar el pool. Solo actividades **publicadas** y sin las de tipo `sentence_order` (no sirven como reto diario). Filtros opcionales `module` (`vocabulary`, `grammar`, `reading`), `level` (`A1.1`, `A1.2`, `A1.3`), `q` (texto contenido en la pregunta, sin distinguir mayusculas, hasta 100 caracteres) y `limit` (por defecto 50, maximo 100). Devuelve un arreglo de `{ id, activityId, activityTitle, module, level, gameType, text }`; nunca la respuesta correcta ni las opciones. Valores invalidos dan 400 |
+| `POST /daily-challenges` | `{ questionId, position? }` agrega una pregunta al pool. 404 si no existe; 409 `QUESTION_NOT_PUBLISHED` si su actividad no esta publicada; 409 `QUESTION_TYPE_NOT_SUPPORTED` si es de una actividad `sentence_order` (su respuesta es un orden y el reto diario se responde con una sola opcion; el buscador `GET /questions` tampoco las lista); 409 `QUESTION_ALREADY_IN_POOL` si ya esta en el pool. La comprobacion y el alta son atomicas (transaccion que bloquea la fila de la pregunta) |
 | `DELETE /daily-challenges/:id` | Quita un reto del pool. Responde 409 `CHALLENGE_COMPLETED_TODAY` si alguien ya lo completo hoy (el borrado en cascada eliminaria esos registros y permitiria repetirlo) |
 
 Las reglas viven en `app_settings` y las consultan `activity.service.js`,
@@ -766,9 +766,9 @@ Las reglas viven en `app_settings` y las consultan `activity.service.js`,
 valores originales (5 / 100 / 10).
 
 > **Nota de alcance:** los paneles del cliente (`/staff/content`, `/staff/review`,
-> `/staff/game`, `/staff/moderation`, `/staff/support`) son trabajo del equipo de
-> frontend. El backend expone los contratos de esta seccion; `ROLE_SECTIONS` en
-> `client/src/pages/staff/StaffLayout.jsx` aun debe ampliarse para mostrarlos.
+> `/staff/game`, `/staff/moderation`, `/staff/support`) ya existen en
+> `client/src/pages/staff/` y `ROLE_SECTIONS` en `client/src/pages/staff/StaffLayout.jsx`
+> ya los asigna a cada rol. El backend expone los contratos de esta seccion.
 
 ---
 

@@ -16,6 +16,8 @@ const RULE_KEYS = {
 const DEFAULT_RULES = Object.freeze({ xpPerCorrect: 5, xpPerLevel: 100, dailyChallengeXp: 10 });
 const MODULE_SLUGS = ['vocabulary', 'grammar', 'reading'];
 const LEVELS = ['A1.1', 'A1.2', 'A1.3'];
+// sentence_order guarda un ORDEN (arreglo) como respuesta; el reto diario se responde con UNA opcion.
+const DAILY_UNSUPPORTED_TYPES = ['sentence_order'];
 const QUESTION_SEARCH_MAX = 100;
 const QUESTION_LIMIT_DEFAULT = 50;
 const QUESTION_LIMIT_MAX = 100;
@@ -146,8 +148,8 @@ function queryText(value, label) {
 // Buscador de preguntas para elegir un reto: solo actividades publicadas y sin la respuesta
 // correcta ni las opciones (el gestor del juego no necesita ver las soluciones).
 async function listQuestions({ module, level, q, limit } = {}) {
-    const where = ["a.status = 'published'"];
-    const params = [];
+    const where = ["a.status = 'published'", 'a.game_type NOT IN (?)'];
+    const params = [DAILY_UNSUPPORTED_TYPES];
     if (module !== undefined) {
         if (!MODULE_SLUGS.includes(queryText(module, 'El modulo'))) throw new AppError('Modulo no valido.', 400);
         where.push('m.slug = ?');
@@ -193,28 +195,48 @@ async function listQuestions({ module, level, q, limit } = {}) {
 async function addDailyChallenge(actor, { questionId, position }) {
     const qid = Number(questionId);
     if (!Number.isInteger(qid) || qid <= 0) throw new AppError('Pregunta no valida.', 400);
-    const [questions] = await pool.query(
-        `SELECT q.id, a.status FROM questions q JOIN activities a ON a.id = q.activity_id
-         WHERE q.id = ?`, [qid]
-    );
-    if (questions.length === 0) throw new AppError('La pregunta no existe.', 404);
-    if (questions[0].status !== 'published') {
-        throw new AppError(
-            'Solo se pueden agregar preguntas de actividades publicadas.', 409, 'QUESTION_NOT_PUBLISHED'
+    // Sin UNIQUE(question_id) (sin migracion): la verificacion y el INSERT van en una transaccion
+    // que bloquea la fila de la pregunta. Dos altas simultaneas de la misma pregunta se serializan
+    // y la segunda ve a la primera al revisar el pool.
+    const conn = await pool.getConnection();
+    let result;
+    let pos;
+    try {
+        await conn.beginTransaction();
+        const [locked] = await conn.query('SELECT id, activity_id FROM questions WHERE id = ? FOR UPDATE', [qid]);
+        if (locked.length === 0) throw new AppError('La pregunta no existe.', 404);
+        const [acts] = await conn.query('SELECT status, game_type FROM activities WHERE id = ?', [locked[0].activity_id]);
+        if (acts.length === 0) throw new AppError('La pregunta no existe.', 404);
+        if (acts[0].status !== 'published') {
+            throw new AppError(
+                'Solo se pueden agregar preguntas de actividades publicadas.', 409, 'QUESTION_NOT_PUBLISHED'
+            );
+        }
+        if (DAILY_UNSUPPORTED_TYPES.includes(acts[0].game_type)) {
+            throw new AppError(
+                'Las preguntas de ordenar oraciones no sirven como reto diario: el estudiante responde con una sola opcion.',
+                409, 'QUESTION_TYPE_NOT_SUPPORTED'
+            );
+        }
+        const [dup] = await conn.query('SELECT 1 FROM daily_challenges WHERE question_id = ? LIMIT 1', [qid]);
+        if (dup.length > 0) {
+            throw new AppError('Esa pregunta ya esta en el pool.', 409, 'QUESTION_ALREADY_IN_POOL');
+        }
+        pos = Number(position);
+        if (!Number.isInteger(pos) || pos <= 0) {
+            const [max] = await conn.query('SELECT COALESCE(MAX(position), 0) + 1 AS n FROM daily_challenges');
+            pos = max[0].n;
+        }
+        [result] = await conn.query(
+            'INSERT INTO daily_challenges (question_id, position) VALUES (?, ?)', [qid, pos]
         );
+        await conn.commit();
+    } catch (err) {
+        try { await conn.rollback(); } catch { /* la conexion ya cayo */ }
+        throw err;
+    } finally {
+        conn.release();
     }
-    const [dup] = await pool.query('SELECT 1 FROM daily_challenges WHERE question_id = ? LIMIT 1', [qid]);
-    if (dup.length > 0) {
-        throw new AppError('Esa pregunta ya esta en el pool.', 409, 'QUESTION_ALREADY_IN_POOL');
-    }
-    let pos = Number(position);
-    if (!Number.isInteger(pos) || pos <= 0) {
-        const [max] = await pool.query('SELECT COALESCE(MAX(position), 0) + 1 AS n FROM daily_challenges');
-        pos = max[0].n;
-    }
-    const [result] = await pool.query(
-        'INSERT INTO daily_challenges (question_id, position) VALUES (?, ?)', [qid, pos]
-    );
     await audit.record({
         actorType: 'staff', actorId: actor.id, actorRole: actor.role,
         action: 'game.challenge.add', target: `challenge:${result.insertId}`, outcome: 'ok'
