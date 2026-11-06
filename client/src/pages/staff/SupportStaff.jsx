@@ -109,7 +109,7 @@ function ReportCard({ report, pending, busy, panelRef, onAsk, onCancel, onConfir
                     {report.questionId ? `Pregunta n.º ${report.questionId} de la actividad` : 'Actividad'} {activityLabel(report)}
                 </h3>
                 <p className="text-xs text-gray-500">
-                    Reportado por: {REPORTER_ROLES[report.reporterRole] || report.reporterRole} · {formatDateTime(report.createdAt)}
+                    Reportado por: {REPORTER_ROLES[report.reporterRole] || report.reporterRole}{report.reporterAlias ? ` · ${report.reporterAlias}` : ''} · {formatDateTime(report.createdAt)}
                 </p>
 
                 <figure>

@@ -42,21 +42,34 @@ async function createReport({ userId, role, kind, activityId, questionId, note }
         );
         if (questions.length === 0) throw new AppError('La pregunta no pertenece a esa actividad.', 400);
     }
-    const [open] = await pool.query(
-        `SELECT id FROM content_reports
-         WHERE reporter_id = ? AND kind = ? AND activity_id = ?
-           AND question_id <=> ? AND status IN ('open','escalated')`,
-        [userId, kind, aid, qid]
-    );
-    if (open.length > 0) {
-        throw new AppError('Ya tienes un reporte abierto sobre este contenido.', 409, 'ALREADY_REPORTED');
+    // Atomico sin migracion: se bloquea la fila del reportante, asi dos peticiones simultaneas
+    // de la misma persona se serializan y la segunda ve el reporte abierto de la primera.
+    const conn = await pool.getConnection();
+    let result;
+    try {
+        await conn.beginTransaction();
+        await conn.query('SELECT id FROM users WHERE id = ? FOR UPDATE', [userId]);
+        const [open] = await conn.query(
+            `SELECT id FROM content_reports
+             WHERE reporter_id = ? AND kind = ? AND activity_id = ?
+               AND question_id <=> ? AND status IN ('open','escalated')`,
+            [userId, kind, aid, qid]
+        );
+        if (open.length > 0) {
+            throw new AppError('Ya tienes un reporte abierto sobre este contenido.', 409, 'ALREADY_REPORTED');
+        }
+        [result] = await conn.query(
+            `INSERT INTO content_reports (kind, activity_id, question_id, reporter_id, reporter_role, note)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [kind, aid, qid, userId, role, text]
+        );
+        await conn.commit();
+    } catch (err) {
+        try { await conn.rollback(); } catch { /* conexion ya cerrada */ }
+        throw err;
+    } finally {
+        conn.release();
     }
-
-    const [result] = await pool.query(
-        `INSERT INTO content_reports (kind, activity_id, question_id, reporter_id, reporter_role, note)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [kind, aid, qid, userId, role, text]
-    );
     await audit.record({
         actorType: role, actorId: userId, actorRole: role,
         action: 'content.report.create', target: `report:${result.insertId}`, outcome: 'ok'
@@ -72,6 +85,8 @@ function scopeForRole(role) {
     return null;
 }
 
+// El alias (usuario de acceso de un menor) solo lo ve soporte, que debe poder ubicar la cuenta
+// al corregir un error. Moderacion y gestor de contenido reciben la respuesta SIN esa clave.
 async function listReports({ role, status, kind }) {
     const scope = scopeForRole(role);
     const where = [];
@@ -101,7 +116,11 @@ async function listReports({ role, status, kind }) {
          ORDER BY r.created_at DESC, r.id DESC LIMIT 200`,
         params
     );
-    return rows.map((r) => ({ ...r, reporterActive: Boolean(r.reporterActive) }));
+    return rows.map(({ reporterAlias, ...r }) => ({
+        ...r,
+        reporterActive: Boolean(r.reporterActive),
+        ...(role === 'support' ? { reporterAlias } : {})
+    }));
 }
 
 const ALLOWED_DECISIONS = {
