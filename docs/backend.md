@@ -142,11 +142,37 @@ node scripts/create-staff.js ana.accesos access_manager   # imprime el secreto T
 DEMO_STAFF_PASSWORD='<12+ caracteres>' node scripts/seed-demo-staff.js   # 24 cuentas demo; solo desarrollo, no corre en produccion
 ```
 
+`schema.sql` y `staff.sql` ya incluyen la estructura final de las migraciones: una base nueva no necesita correr `database/migrations/` (solo sirven para actualizar una base existente).
+
 Arrancar:
 
 ```bash
 npm run dev              # http://localhost:3000/api/health
 ```
+
+## Fases B y C (modulos 6 al 9)
+
+Implementadas en el backend segun el diseno §4.1/§5.3 y el spec
+`docs/specs/staff-fase-b.md`: ciclo de vida del contenido con aprobacion de otra
+cuenta, reportes de estudiantes y docentes, reglas de juego configurables,
+alias ocultos del ranking y pool del reto diario. El contrato completo esta en
+`docs/api.md`. Los paneles del cliente siguen siendo trabajo del frontend.
+
+## Migraciones pendientes de aplicar (no incluidas en el despliegue)
+
+- `database/migrations/phase5-content-review.sql`: agrega a `activities` el
+  estado del ciclo de vida, autor, revisor, nota y `replaces_id`; crea
+  `content_reports` y `students.alias_hidden`. **Aplicar antes** de desplegar:
+  las consultas de estudiantes filtran por `status = 'published'`. El valor por
+  defecto `published` deja el contenido existente intacto.
+- `database/migrations/phase6-totp-replay.sql`: agrega `mfa_last_counter` a `users`
+  y `staff_accounts` para el anti-replay del TOTP. **Aplicar antes** de desplegar el
+  codigo que la consulta. El codigo **falla cerrado**: sin la columna, el login con
+  MFA responde 500 (nunca acepta el codigo sin anti-replay), asi que la migracion es
+  obligatoria.
+- `database/migrations/phase6-hardening.sql`: indice en `activities.level` y
+  unicidades propuestas. Trae `SELECT` de verificacion previa: no aplicar sin
+  revisar duplicados.
 
 ## Como probarlo
 
@@ -155,7 +181,7 @@ cd server
 npm test
 ```
 
-`npm test` ejecuta dos archivos:
+`npm test` ejecuta todos los archivos `tests/*.test.js` (27 en total). Los dos iniciales son:
 
 - `tests/api.test.js`: rutas protegidas sin token (`401`), rol equivocado (`403`), aislamiento
   entre el token de estudiante y el de gestion, validacion de entrada, `403` del modo demo
@@ -165,6 +191,9 @@ npm test
 
 Las pruebas del grado de la clase viven en `tests/class-grade.test.js`, `tests/classLevels.test.js`,
 `tests/errorCode.test.js` y `tests/seed-content.test.js`; `npm test` ejecuta tambien esos archivos.
+Las reglas puras (XP/niveles, correccion de respuestas, validacion de entradas, TOTP,
+anti-replay, ranking y el dia de Panama (UTC-5) del reto diario) tienen pruebas unitarias sin base
+de datos en `day.test.js`, `xp.service.test.js`, `answers.test.js`, `answers-shape.test.js`, `display-name.test.js`, `totp.test.js`, `totp-replay.test.js`, `ranking.test.js` y `security-inputs.test.js`.
 
 Todos cargan `.env` si existe. Las pruebas que necesitan MySQL o `STAFF_MFA_KEY` **se omiten
 solas** cuando no estan disponibles, asi que la suite corre igual en una maquina sin base.

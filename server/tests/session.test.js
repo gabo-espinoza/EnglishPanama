@@ -55,6 +55,8 @@ test.after(async () => {
     }
     server.close();
     try { await pool.end(); } catch { /* sin conexiones */ }
+    // El login con MFA abre el pool de auditoria: si no se cierra, el archivo no termina.
+    try { await require('../src/config/auditDb').closeAuditPool(); } catch { /* sin conexiones */ }
 });
 
 function post(path, body) {
@@ -68,6 +70,9 @@ function post(path, body) {
 // Inicio de sesion completo del docente: contrasena, reto de MFA y codigo TOTP.
 // Devuelve el JWT de plataforma.
 async function login() {
+    // Cada inicio de sesion es un escenario independiente: se limpia el contador
+    // anti-replay para no reutilizar el mismo codigo TOTP dentro de la ventana de 30 s.
+    if (ready) await pool.query('UPDATE users SET mfa_last_counter = NULL WHERE id = ?', [teacher.id]);
     const first = await (await post('/auth/login', { username: teacher.username, password: PASSWORD })).json();
     assert.ok(first.mfaToken, 'un docente con MFA debe recibir el reto, no la sesion');
     const second = await (await post('/auth/login/mfa', {

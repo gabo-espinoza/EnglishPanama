@@ -1,12 +1,29 @@
 const pool = require('../config/db');
-const { levelForXp } = require('./xp.service');
+const { levelForXp, XP_PER_LEVEL } = require('./xp.service');
+const game = require('./game.service');
 const { GRADE_LEVELS, isValidGrade, levelForGrade } = require('../config/classLevels');
 const { getClassLevelForTeacher } = require('./classLevel.service');
 const AppError = require('../utils/AppError');
+const audit = require('./audit.service');
 
 // Panel docente: lista de estudiantes de la clase del docente autenticado,
 // con nivel, XP, actividades completadas y promedio (%) por modulo.
+// Funcion pura: fila base de un estudiante con el nivel segun `rules.xpPerLevel`.
+function buildStudentRow(student, rules = {}) {
+    return {
+        userId: student.userId,
+        alias: student.alias,
+        avatar: student.avatar,
+        xp: student.xp,
+        level: levelForXp(student.xp, rules.xpPerLevel ?? XP_PER_LEVEL),
+        completedActivities: 0,
+        averages: { vocabulary: null, grammar: null, reading: null }
+    };
+}
+
 async function getStudents(teacherId) {
+    // Una sola lectura de reglas por peticion.
+    const rules = await game.getRules();
     const [students] = await pool.query(
         `SELECT s.user_id AS userId, u.username AS alias, s.avatar, s.xp
          FROM students s
@@ -38,15 +55,7 @@ async function getStudents(teacherId) {
 
     const byStudent = new Map();
     for (const student of students) {
-        byStudent.set(student.userId, {
-            userId: student.userId,
-            alias: student.alias,
-            avatar: student.avatar,
-            xp: student.xp,
-            level: levelForXp(student.xp),
-            completedActivities: 0,
-            averages: { vocabulary: null, grammar: null, reading: null }
-        });
+        byStudent.set(student.userId, buildStudentRow(student, rules));
     }
 
     const completedSets = new Map();     // studentId -> Set(activityId)
@@ -161,7 +170,12 @@ async function declareGrade(teacherId, { grade, confirm } = {}) {
             'GRADE_LOCKED'
         );
     }
+    // El grado es irreversible: dejar constancia de quien lo declaro (diseno §5.1).
+    await audit.record({
+        actorType: 'teacher', actorId: teacherId, actorRole: 'teacher',
+        action: 'teacher.class.grade', target: `grade:${grade}`, outcome: 'ok'
+    });
     return getClass(teacherId);
 }
 
-module.exports = { getStudents, getDifficultTopics, getClass, declareGrade };
+module.exports = { getStudents, getDifficultTopics, getClass, declareGrade, buildStudentRow };

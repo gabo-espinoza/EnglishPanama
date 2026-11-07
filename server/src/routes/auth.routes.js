@@ -9,7 +9,7 @@ const router = express.Router();
 // los codigos TOTP (6 digitos tambien son adivinables por fuerza bruta).
 // Las cuentas de docente NO se crean por registro: las crea el gestor de accesos
 // (POST /api/staff/teachers). Se deja la ruta con una respuesta clara en lugar de un 404 generico.
-router.post('/register/teacher', (req, res) => {
+router.post('/register/teacher', authLimiter, (req, res) => {
     res.status(403).json({
         error: 'El registro de docentes esta deshabilitado: las cuentas de docente las crea el gestor de accesos.'
     });
@@ -24,6 +24,9 @@ router.post('/login/mfa', authLimiter, authController.loginMfa);
 
 // Cambio de contrasena propio: exige sesion normal y la contrasena actual.
 router.post('/change-password', authLimiter, requireAuth, authController.changePassword);
+
+// Cierre de sesion con revocacion real del token (seguimiento de los PR #24 y #25).
+router.post('/logout', requireAuth, authController.logout);
 
 // Contrasena inicial del docente creado por el gestor de accesos: solo acepta el token
 // restringido "pwd_change" que devuelve el login mientras must_change_password sea 1.

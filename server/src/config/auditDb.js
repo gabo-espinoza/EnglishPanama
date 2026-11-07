@@ -35,6 +35,7 @@ function getAuditPool() {
             user: process.env.AUDIT_DB_USER || process.env.DB_USER,
             password: process.env.AUDIT_DB_PASSWORD || process.env.DB_PASSWORD, // fallback solo fuera de produccion
             database: process.env.AUDIT_DB_NAME,
+            port: Number(process.env.DB_PORT) || 3306,
             waitForConnections: true,
             connectionLimit: 5,
             queueLimit: 0,

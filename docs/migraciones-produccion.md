@@ -645,3 +645,73 @@ sudo mysql englishpanama -e "DELETE FROM activities WHERE is_example = 1;"
 - [ ] **Punto de control B** superado (`pm2` online, `/api/health` OK)
 - [ ] Cuentas `access_manager` y `auditor` creadas (sección 8) y primer docente creado (sección 8.1)
 - [ ] Verificación funcional (sección 9)
+
+---
+
+## 15. Migraciones del cierre del backend (añadido el 5 de noviembre de 2026)
+
+La guía anterior cubre el paso de `main` a `develop` mediante
+`prod-upgrade-all.sql`. El backend ya está fusionado en `develop` (PR #26,
+merge `68f2480`) pero **`main` sigue sin cambios y no se ha desplegado**.
+**El backend de la rama `feat/backend-hardening-daniel`
+añade tres migraciones más que también deben aplicarse en la VM-BD antes de
+desplegar**, porque el código consulta columnas y tablas que `prod-upgrade-all.sql`
+no crea. Sin ellas, las consultas de estudiantes filtran por `status = 'published'`
+sobre una columna inexistente y el login anti-replay no actúa.
+
+Aplicar **después** de la sección 5 y **antes** del despliegue (sección 7), en este
+orden, sobre la base `englishpanama`:
+
+```bash
+sudo mysql englishpanama < phase5-content-review.sql && echo "phase5 OK"
+sudo mysql englishpanama < phase6-totp-replay.sql    && echo "phase6-totp OK"
+# phase6-hardening.sql: revisar primero los SELECT de verificacion previa;
+# las tres restricciones UNIQUE estan comentadas. Ejecutar solo si no hay duplicados.
+```
+
+**[VM-BD]** — comprobación posterior:
+
+```bash
+sudo mysql englishpanama -e "SHOW COLUMNS FROM activities LIKE 'status'; \
+  SHOW COLUMNS FROM users LIKE 'mfa_last_counter'; \
+  SHOW COLUMNS FROM staff_accounts LIKE 'mfa_last_counter'; \
+  SHOW TABLES LIKE 'content_reports';"
+```
+
+Esperado: `status` (`enum('draft','in_review','published','archived')`, default
+`published`), `mfa_last_counter` en `users` y `staff_accounts`, y la tabla
+`content_reports`.
+
+> **Importante:** `phase5-content-review.sql` fue corregido en esta rama. La versión
+> anterior tenía las comillas internas del `ENUM` sin duplicar dentro de un `SET @sql`
+> y fallaba en MySQL 8 con `ERROR 1064`. Usar únicamente la versión de esta rama.
+> Las nueve migraciones se verificaron aplicadas sobre una base MySQL 8 limpia con
+> **0 errores** (ver `docs/entrega-backend.md` §6.2).
+
+Estas migraciones son idempotentes (comprueban `information_schema`), son aditivas y
+no modifican datos existentes: el default `published` deja todo el contenido ya
+publicado intacto. Aun así, **respaldo antes de aplicar** (sección 4) y punto de
+control A (sección 5.4).
+
+**Lista de verificación adicional:**
+
+- [ ] `phase5-content-review.sql` (versión corregida) aplicado en la VM-BD
+- [ ] `phase6-totp-replay.sql` aplicado en la VM-BD
+- [ ] `phase6-hardening.sql` revisado; `UNIQUE` solo si no hay duplicados
+- [ ] Comprobación de columnas y tablas anterior correcta
+- [ ] `DB_PORT` presente en el `.env` de la VM-APP (o dejar el default 3306)
+
+## 16. Cambio de "día" del reto diario: de UTC a hora de Panama
+
+El día del reto diario pasa de ser el día UTC a ser el día de Panama (UTC-5 fijo, sin horario de verano). Antes, en Panamá el reto cambiaba a las 19:00 locales; ahora cambia a las 00:00 locales (05:00 UTC). El día se calcula en Node (`server/src/utils/day.js`) y se envía a MySQL como parámetro, así que no depende de la zona horaria de la sesión de MySQL.
+
+**No hay migración de esquema ni de datos.** `daily_completions.completed_on` sigue siendo `DATE`; solo cambia cómo se calcula el valor que se escribe.
+
+**Qué pasa el día del despliegue.** Las filas existentes de `completed_on` se escribieron como fechas UTC. Si se despliega durante el día, el efecto es el siguiente, dicho sin rodeos:
+
+- Un estudiante que completó el reto **entre las 19:00 y las 24:00 de Panama** del día del despliegue (fila con la fecha UTC del día siguiente) queda con `completed_on` = día siguiente. Tras el despliegue, "hoy" en Panamá sigue siendo el día actual, así que esa fila no cuenta como "hoy" y el estudiante **puede completar el reto una vez más** (y cobrar sus 10 XP otra vez) ese mismo día de Panamá. El reto de esa noche también puede ser distinto, porque el índice del pool usa el día del año.
+- Quien completó antes de las 19:00 de Panama no se ve afectado: su fecha UTC y su fecha de Panama coinciden.
+- El efecto es de una sola vez, acotado a esa ventana y como máximo un reto extra (10 XP) por estudiante. No se migran datos: reescribir fechas no es trivial ni seguro (un `UPDATE` a `completed_on - 1 día` chocaría con la restricción `UNIQUE (student_id, completed_on)` en estudiantes con filas de días consecutivos).
+- Para no tener ni ese caso, desplegar entre las 00:00 y las 19:00 de Panama (05:00 a 24:00 UTC).
+
+**Pruebas:** `server/tests/daily-challenge-panama-day.test.js` (reloj congelado) y `server/tests/day.test.js`.
