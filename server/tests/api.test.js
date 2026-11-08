@@ -157,7 +157,7 @@ test('username invalido responde 400', async () => {
     const res = await fetch(`${baseUrl}/auth/register/student`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: 'a', password: '1234', classCode: 'ABC123' })
+        body: JSON.stringify({ username: 'a', password: 'ClaveSegura123', classCode: 'ABC123' })
     });
     assert.strictEqual(res.status, 400);
 });

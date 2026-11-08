@@ -172,12 +172,16 @@ function validateUsername(username) {
     }
 }
 
+// Minimo de 8: con 4 caracteres una cuenta de menor se adivina con pocos intentos (D-005).
+// Solo aplica a contrasenas nuevas; el login no la exige para no bloquear cuentas existentes.
+const MIN_PASSWORD_LENGTH = 8;
+
 function validatePassword(password) {
     if (typeof password !== 'string' || !password) {
         throw new AuthError('La contrasena es obligatoria.');
     }
-    if (password.length < 4) {
-        throw new AuthError('La contrasena debe tener al menos 4 caracteres.');
+    if (password.length < MIN_PASSWORD_LENGTH) {
+        throw new AuthError(`La contrasena debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres.`);
     }
     if (password.length > MAX_PASSWORD_LENGTH) {
         throw new AuthError('La contrasena es demasiado larga.');
