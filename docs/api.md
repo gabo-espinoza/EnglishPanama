@@ -119,7 +119,7 @@ La contrasena temporal deja de servir en cuanto la reemplaza.
    ```
 
 *Validaciones:* el `username` admite entre 3 y 30 caracteres (letras, numeros,
-punto, guion o guion bajo) y la contrasena entre 4 y 72 caracteres.
+punto, guion o guion bajo) y la contrasena entre 8 y 72 caracteres.
 `login` y `register` tienen limite de intentos (ver `docs/security.md`).
 
 ### `POST /auth/set-initial-password` - token `pwd_change`
@@ -134,7 +134,7 @@ intentos de autenticacion.
 { "newPassword": "string", "confirmPassword": "string" }
 ```
 
-*Validaciones:* ambos campos son obligatorios; la contrasena nueva tiene entre 4 y 72 caracteres, debe
+*Validaciones:* ambos campos son obligatorios; la contrasena nueva tiene entre 8 y 72 caracteres, debe
 coincidir con `confirmPassword` y ser distinta de la temporal. Queda en la auditoria
 (`user.password.initial_set`).
 
@@ -166,7 +166,7 @@ Cambio de contrasena **propio** y voluntario, con la contrasena actual. (La cont
 nuevo se reemplaza con `POST /auth/set-initial-password`, no con esta ruta.) Body `{ "currentPassword": "string", "newPassword": "string" }`.
 
 La contrasena actual es obligatoria: una sesion robada no basta para quedarse con la cuenta. La nueva
-debe tener entre 4 y 72 caracteres y ser distinta de la actual. Un intento con la contrasena actual
+debe tener entre 8 y 72 caracteres y ser distinta de la actual. Un intento con la contrasena actual
 incorrecta cuenta para el bloqueo de 3 intentos / 10 segundos, y la ruta tiene el limite de intentos de
 autenticacion. Queda en la auditoria (`user.password.change`).
 

@@ -109,4 +109,4 @@ echo
 echo "Listo. Base de pruebas en 127.0.0.1:$PORT (contenedor $NAME)."
 echo "Siguiente paso, en la terminal donde vayas a probar:"
 echo "   eval \"\$(bash server/scripts/setup-test-db.sh --env)\""
-echo "   cd server && npm ci && node --test"
+echo "   cd server && npm ci && npm test"

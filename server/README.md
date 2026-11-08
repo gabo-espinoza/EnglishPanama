@@ -59,7 +59,7 @@ el pool usa el puerto por defecto de MySQL (3306).
 npm test
 ```
 
-`node --test` descubre automaticamente todos los `tests/*.test.js` (27 archivos).
+`npm test` (que ejecuta `node --test --test-concurrency=1`) descubre automaticamente todos los `tests/*.test.js` y los corre **en serie**: varios archivos comparten la misma base de datos y algunas pruebas (reto diario, actividades publicadas) se interfieren si corren en paralelo. Tarda unos 2 minutos. Para un solo archivo: `node --test tests/<archivo>.test.js`.
 Ademas de las pruebas de integracion (`api.test.js`, `staff.test.js`,
 `mfa-platform.test.js`, `mfa-teacher.test.js`, `class-grade.test.js`,
 `daily-challenge.test.js`, `demo-accounts.test.js`, ...), hay pruebas unitarias
