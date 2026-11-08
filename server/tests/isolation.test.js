@@ -79,14 +79,10 @@ test.before(async () => {
     // Contenido minimo para poder probar XP y respuestas. Se reutiliza el modulo
     // grammar si ya existiera; la actividad se borra al final (y con ella sus
     // preguntas e intentos, por las claves foraneas).
-    let [mods] = await pool.query("SELECT id FROM modules WHERE slug = 'grammar'");
-    let moduleId;
-    if (mods.length === 0) {
-        const [m] = await pool.query("INSERT INTO modules (slug, name) VALUES ('grammar', 'Grammar')");
-        moduleId = m.insertId;
-    } else {
-        moduleId = mods[0].id;
-    }
+    // INSERT IGNORE + SELECT: otros archivos de prueba crean el mismo modulo en paralelo.
+    await pool.query("INSERT IGNORE INTO modules (slug, name) VALUES ('grammar', 'Grammar')");
+    const [[mod]] = await pool.query("SELECT id FROM modules WHERE slug = 'grammar'");
+    const moduleId = mod.id;
 
     const [act] = await pool.query(
         "INSERT INTO activities (module_id, title, game_type, sort_order, level) VALUES (?, ?, 'multiple_choice', 0, 'A1.1')",
