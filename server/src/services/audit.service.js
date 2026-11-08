@@ -9,6 +9,22 @@ const { getAuditPool } = require('../config/auditDb');
 const GENESIS = '0'.repeat(64);
 const MAX_ACTION = 60;
 
+// Largos de las columnas VARCHAR de audit_log (server/database/audit.sql). Un valor mas
+// largo hace fallar el INSERT en modo estricto y la fila se perderia en silencio: un acceso
+// denegado con una URL de 150 caracteres no dejaria rastro. Se recorta antes de hashear.
+const MAX_ACTOR_ROLE = 30;
+const MAX_TARGET = 100;
+const MAX_IP = 45;
+
+// Recorta por caracteres (puntos de codigo), no por unidades UTF-16: partir un par
+// sustituto dejaria un caracter invalido que MySQL guardaria distinto de lo que se hasheo.
+function fit(value, max) {
+    if (value === null || value === undefined) return value;
+    const text = String(value);
+    if (text.length <= max) return text;
+    return Array.from(text).slice(0, max).join('');
+}
+
 function pad(value, length = 2) {
     return String(value).padStart(length, '0');
 }
@@ -77,11 +93,11 @@ async function record({ actorType, actorId = null, actorRole = null, action, tar
             occurred_at: occurredAt,
             actor_type: actorType,
             actor_id: actorId,
-            actor_role: actorRole,
-            action: String(action).slice(0, MAX_ACTION),
-            target,
+            actor_role: fit(actorRole, MAX_ACTOR_ROLE),
+            action: fit(action, MAX_ACTION),
+            target: fit(target, MAX_TARGET),
             outcome,
-            ip
+            ip: fit(ip, MAX_IP)
         };
         const rowHash = hashRow(row);
 
@@ -89,7 +105,7 @@ async function record({ actorType, actorId = null, actorRole = null, action, tar
             `INSERT INTO audit_log
                 (occurred_at, actor_type, actor_id, actor_role, action, target, outcome, ip, prev_hash, row_hash)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [formatUtc(occurredAt), actorType, actorId, actorRole, row.action, target, outcome, ip, prevHash, rowHash]
+            [formatUtc(occurredAt), actorType, actorId, row.actor_role, row.action, row.target, outcome, row.ip, prevHash, rowHash]
         );
         return rowHash;
     } catch (err) {
