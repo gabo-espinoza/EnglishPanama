@@ -655,7 +655,7 @@ test('reset-grade: id invalido 400; id inexistente o de un estudiante 404', asyn
     const body = { reason: 'eligio mal el grado' };
     const bad = await resetGrade('abc', tok, body);
     assert.strictEqual(bad.status, 400);
-    assert.strictEqual((await bad.json()).error, 'Identificador de docente invalido.');
+    assert.strictEqual((await bad.json()).error, 'El identificador del docente no es valido.');
     assert.strictEqual((await resetGrade(0, tok, body)).status, 400);
     const missing = await resetGrade(999999999, tok, body);
     assert.strictEqual(missing.status, 404);

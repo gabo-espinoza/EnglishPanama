@@ -5,6 +5,7 @@ const bcrypt = require('bcrypt');
 const pool = require('../config/db');
 const AppError = require('../utils/AppError');
 const audit = require('./audit.service');
+const { parseId } = require('../utils/ids');
 
 const USERNAME_PATTERN = /^[A-Za-z0-9_.-]{3,30}$/;
 const MAX_DISPLAY_NAME = 100;
@@ -40,11 +41,13 @@ async function getAccount(id) {
 
 // --- Solicitudes de cambio de estado (suspender / activar) ---
 
-async function createChangeRequest({ targetId, action, requestedBy }) {
+async function createChangeRequest({ targetId: rawTargetId, action, requestedBy }) {
     if (!['suspend', 'activate'].includes(action)) {
         throw new AppError('Accion invalida. Usa "suspend" o "activate".', 400);
     }
-    if (Number(targetId) === Number(requestedBy)) {
+    // Entero positivo estricto: un valor como "2'" llegaba al INSERT y MySQL fallaba con un 500.
+    const targetId = parseId(rawTargetId, 'El identificador de la cuenta');
+    if (targetId === Number(requestedBy)) {
         throw new AppError('No puedes solicitar un cambio sobre tu propia cuenta.', 400);
     }
     await getAccount(targetId); // 404 si no existe
@@ -187,10 +190,7 @@ async function createTeacher({ username, displayName, actorId }) {
 // y se limpia el bloqueo: en su siguiente inicio de sesion, como el MFA es obligatorio
 // para docentes, tendra que vincular un autenticador nuevo.
 async function resetTeacherMfa({ teacherId, actorId }) {
-    const id = Number(teacherId);
-    if (!Number.isInteger(id) || id <= 0) {
-        throw new AppError('Identificador de docente invalido.', 400);
-    }
+    const id = parseId(teacherId, 'El identificador del docente');
 
     const [rows] = await pool.query(
         "SELECT u.id, u.username FROM users u WHERE u.id = ? AND u.role = 'teacher'",
@@ -232,10 +232,7 @@ const MAX_AUDIT_TARGET = 100;
 const GRADE_NOT_SET_MSG = 'El grado de esta clase aun no ha sido declarado.';
 
 async function resetTeacherGrade({ teacherId, reason, actorId }) {
-    const id = Number(teacherId);
-    if (!Number.isInteger(id) || id <= 0) {
-        throw new AppError('Identificador de docente invalido.', 400);
-    }
+    const id = parseId(teacherId, 'El identificador del docente');
     const motivo = typeof reason === 'string' ? reason.trim() : '';
     if (motivo.length < MIN_REASON || motivo.length > MAX_REASON || REASON_INVALID.test(motivo)) {
         throw new AppError('El motivo debe tener entre 5 y 40 caracteres y no puede incluir |.', 400);
