@@ -639,6 +639,7 @@ sudo mysql englishpanama -e "DELETE FROM activities WHERE is_example = 1;"
 - [ ] `phase4-class-grade.sql` aplicado en la VM-BD **antes** del despliegue; `SHOW COLUMNS FROM teachers LIKE 'grade%'` muestra `grade` y `grade_locked_at`, y `SHOW COLUMNS FROM activities LIKE 'level'` / `'is_example'` muestran las columnas (sección 14)
 - [ ] Docentes avisados de que deben declarar el grado de su clase al entrar; ejemplos cargados **a mano** con `node scripts/seed-demo-content.js --allow-production` solo si se decidió (sección 14.1)
 - [ ] nginx envía `X-Forwarded-For $remote_addr` (sección 6.1) y `nginx -t` pasa antes de recargar
+- [ ] Cabeceras de seguridad del cliente incluidas en nginx y comprobadas con `curl -sI` (sección 17)
 - [ ] Desde fuera, `http://150.136.50.253:3000` **no** responde (sección 10)
 - [ ] `.env` actualizado: `NODE_ENV`, `TRUST_PROXY=true`, `STAFF_*`, `AUDIT_DB_*`; respaldo de `STAFF_MFA_KEY` fuera de la VM (sección 6)
 - [ ] PR #8 (MFA docente, que incluye #7) en `develop`; merge `develop` → `main` y Actions en verde (sección 7)
@@ -715,3 +716,40 @@ El día del reto diario pasa de ser el día UTC a ser el día de Panama (UTC-5 f
 - Para no tener ni ese caso, desplegar entre las 00:00 y las 19:00 de Panama (05:00 a 24:00 UTC).
 
 **Pruebas:** `server/tests/daily-challenge-panama-day.test.js` (reloj congelado) y `server/tests/day.test.js`.
+
+## 17. Cabeceras de seguridad del cliente en nginx (hallazgos D-012 a D-016)
+
+El análisis dinámico (OWASP ZAP) y una comprobación de solo lectura en la VM mostraron que nginx entrega el HTML del cliente **sin** `Content-Security-Policy`, `X-Frame-Options`, `X-Content-Type-Options` ni `Permissions-Policy`: solo la API recibe cabeceras de seguridad (las pone `helmet`). El archivo `docs/nginx/englishpanama-cabeceras-seguridad.conf` las agrega, con un comentario por cada directiva de la CSP. No toca la API ni el código; es independiente del despliegue y reversible.
+
+**[VM-APP]**
+
+```bash
+# 1) Copiar el snippet (desde una copia del repositorio) y encontrar el archivo del sitio
+sudo cp docs/nginx/englishpanama-cabeceras-seguridad.conf /etc/nginx/snippets/
+sudo grep -Rl "proxy_pass http://localhost:3000" /etc/nginx/
+
+# 2) Respaldo
+sudo cp -a ARCHIVO ~/nginx-backup-$(date +%Y%m%d)
+```
+
+3. Edita `ARCHIVO` (en `/etc/nginx/sites-available/`) y agrega esta línea dentro de **cada** `location` que sirva el cliente (normalmente `location / { ... }`), **no** dentro de `location /api/`:
+
+```nginx
+include snippets/englishpanama-cabeceras-seguridad.conf;
+```
+
+`add_header` no se hereda hacia un `location` que ya tenga el suyo: si hay uno para `.js`/`.css`, repite el `include` allí.
+
+```bash
+# 4) Validar ANTES de recargar, y recargar
+sudo nginx -t && sudo systemctl reload nginx
+
+# 5) Comprobar desde la VM
+curl -sI http://localhost/ | grep -iE "content-security|x-frame|x-content-type|referrer|permissions|cross-origin"
+```
+
+Esperado: las seis cabeceras. Si algo falla: `sudo cp -a ~/nginx-backup-<fecha> ARCHIVO && sudo nginx -t && sudo systemctl reload nginx`.
+
+**Después de aplicarlo, abre `/login` y `/staff/login` con la consola del navegador abierta**: no debe haber mensajes de "Content Security Policy" y las fuentes (Poppins, Fredoka One) deben verse. Si aparece alguno, indica qué recurso se bloquea; no relajes `script-src`.
+
+**Qué se probó y qué no.** Con nginx 1.30 en un contenedor delante del servidor de desarrollo de Vite, el snippet agrega las seis cabeceras y el cliente carga sin violaciones de CSP (login, login de gestión, fuentes de Google). El servidor de desarrollo inyecta un script en línea que `script-src 'self'` bloquea; por eso la prueba en el navegador se hizo con una copia que relaja **solo** `script-src`. Producción mantiene `script-src 'self'` porque el build de Vite no genera scripts en línea (`client/index.html` solo carga un módulo por `src`). **No se probó con el build real** ni en la VM. `Cross-Origin-Opener-Policy` la ignoran los navegadores mientras el sitio use HTTP sin cifrar (avisan en la consola); surte efecto con HTTPS. HSTS y `upgrade-insecure-requests` se agregan junto con HTTPS, que sigue pendiente (sección 10).
