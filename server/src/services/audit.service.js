@@ -5,6 +5,7 @@
 // mano en la base rompe la cadena y se detecta con verify().
 const crypto = require('crypto');
 const { getAuditPool } = require('../config/auditDb');
+const AppError = require('../utils/AppError');
 
 const GENESIS = '0'.repeat(64);
 const MAX_ACTION = 60;
@@ -129,6 +130,23 @@ async function record({ actorType, actorId = null, actorRole = null, action, tar
     }
 }
 
+// Filtros de fecha: solo "YYYY-MM-DD" o "YYYY-MM-DD hh:mm[:ss[.mmm]]" (separador espacio o T),
+// con una fecha real del calendario. Cualquier otro texto llegaba tal cual a MySQL y daba un 500.
+const DATE_FILTER = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?)?$/;
+function parseDateFilter(value, label) {
+    const invalid = () => new AppError(`El filtro "${label}" no es una fecha valida (usa AAAA-MM-DD o AAAA-MM-DD hh:mm:ss).`, 400);
+    if (typeof value !== 'string') throw invalid();
+    const m = DATE_FILTER.exec(value.trim());
+    if (!m) throw invalid();
+    const [year, month, day, hour, minute, second] = m.slice(1, 7).map((v) => Number(v || 0));
+    const d = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+    if (d.getUTCFullYear() !== year || d.getUTCMonth() !== month - 1 || d.getUTCDate() !== day
+        || hour > 23 || minute > 59 || second > 59) {
+        throw invalid();
+    }
+    return value.trim().replace('T', ' ');
+}
+
 async function list({ actorType, actorRole, action, from, to, limit = 50, offset = 0 } = {}) {
     const pool = getAuditPool();
     const where = [];
@@ -136,8 +154,8 @@ async function list({ actorType, actorRole, action, from, to, limit = 50, offset
     if (actorType) { where.push('actor_type = ?'); params.push(actorType); }
     if (actorRole) { where.push('actor_role = ?'); params.push(actorRole); }
     if (action) { where.push('action LIKE ?'); params.push(`%${action}%`); }
-    if (from) { where.push('occurred_at >= ?'); params.push(from); }
-    if (to) { where.push('occurred_at <= ?'); params.push(to); }
+    if (from) { where.push('occurred_at >= ?'); params.push(parseDateFilter(from, 'from')); }
+    if (to) { where.push('occurred_at <= ?'); params.push(parseDateFilter(to, 'to')); }
     const clause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
 
     const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 200);
