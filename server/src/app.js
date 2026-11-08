@@ -37,6 +37,12 @@ app.use(express.json({ limit: '100kb' }));
 // Limite general de peticiones para toda la API.
 app.use('/api', apiLimiter, routes);
 
+// Ruta de la API que no existe: JSON, igual que el resto de las respuestas (el cliente
+// estatico lo sirve nginx, no esta app).
+app.use('/api', (req, res) => {
+    res.status(404).json({ error: 'Ruta no encontrada.' });
+});
+
 app.use(errorHandler);
 
 module.exports = app;
