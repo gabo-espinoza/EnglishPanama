@@ -795,3 +795,67 @@ sudo mysql englishpanama -e "DROP INDEX uq_daily_challenges_question ON daily_ch
 
 - [ ] Verificación previa sin filas
 - [ ] `phase7-daily-challenge-unique.sql` aplicado en la VM-BD y el índice visible
+
+## 19. TLS entre la API y MySQL (opcional)
+
+La API (VM-APP) habla con MySQL (VM-BD, `10.0.0.243:3306`) por la red privada **sin cifrar**. Es una red interna de Oracle Cloud, pero las contraseñas de `app_user` y `audit_writer` y todos los datos viajan en claro por ella. El servidor admite TLS opcional, activado por variables de entorno: sin ellas, todo sigue igual.
+
+| Variable | Valor |
+|---|---|
+| `DB_SSL_CA` | Ruta en la VM-APP al certificado de la CA de MySQL (PEM) |
+| `AUDIT_DB_SSL_CA` | Opcional. Si falta, la base de auditoría usa la de `DB_SSL_CA` |
+
+Con la variable, la conexión va cifrada y la API verifica el certificado del servidor contra esa CA (`rejectUnauthorized: true`). No verifica el nombre del host, así que sirve la CA que MySQL 8 genera sola al instalarse. Si el archivo no se puede leer, la API **no arranca** (no se conecta sin cifrar en silencio).
+
+**[VM-BD]** — 1) comprobar que MySQL tiene TLS activo y dónde está la CA:
+
+```bash
+sudo mysql -e "SHOW VARIABLES LIKE 'have_ssl'; SHOW VARIABLES LIKE 'ssl_ca';"
+# esperado: have_ssl = YES; ssl_ca = ca.pem (relativo a /var/lib/mysql)
+sudo ls -l /var/lib/mysql/ca.pem
+```
+
+El archivo `ca.pem` es público (es el certificado, no la clave); **nunca copies `ca-key.pem` ni `server-key.pem`**.
+
+**[TU PC]** — 2) copiar la CA de la VM-BD a la VM-APP (por ejemplo, pasando por tu equipo):
+
+```bash
+ssh TU_USUARIO@IP_VM_BD "sudo cat /var/lib/mysql/ca.pem" > mysql-ca.pem
+scp mysql-ca.pem TU_USUARIO@150.136.50.253:~/
+```
+
+**[VM-APP]** — 3) dejarla fuera de la carpeta que reemplaza el despliegue y activarla:
+
+```bash
+sudo install -d -m 755 /etc/englishpanama
+sudo install -m 644 ~/mysql-ca.pem /etc/englishpanama/mysql-ca.pem
+cd /var/www/englishpanama/api
+cp .env ~/env-backup-$(date +%Y%m%d-%H%M)
+printf 'DB_SSL_CA=/etc/englishpanama/mysql-ca.pem\n' >> .env
+pm2 restart api && pm2 logs api --lines 20 --nostream
+```
+
+No la guardes dentro de `/var/www/englishpanama/api/`: el despliegue usa `rsync --delete` y la borraría.
+
+**[VM-BD]** — 4) comprobar que las conexiones de la API van cifradas:
+
+```bash
+sudo mysql -e "SELECT s.user, t.VARIABLE_VALUE AS cifrado FROM performance_schema.status_by_thread t \
+  JOIN performance_schema.threads th ON th.THREAD_ID = t.THREAD_ID \
+  JOIN information_schema.PROCESSLIST s ON s.ID = th.PROCESSLIST_ID \
+  WHERE t.VARIABLE_NAME = 'Ssl_cipher' AND s.user IN ('app_user', 'audit_writer');"
+```
+
+Esperado: filas de `app_user` y `audit_writer` con un cifrado (por ejemplo `TLS_AES_256_GCM_SHA384`), no vacío. Prueba también el login y una acción de gestión (que escribe en la auditoría).
+
+**[VM-BD]** — 5) opcional, **solo después del paso 4**: exigir TLS a los usuarios, para que nadie pueda conectarse con ellos sin cifrar:
+
+```bash
+sudo mysql -e "SELECT user, host FROM mysql.user WHERE user IN ('app_user', 'audit_writer');"
+# usa el host exacto que devuelva la consulta anterior (por ejemplo '10.0.0.%')
+sudo mysql -e "ALTER USER 'app_user'@'HOST' REQUIRE SSL; ALTER USER 'audit_writer'@'HOST' REQUIRE SSL;"
+```
+
+**Vuelta atrás:** quitar `DB_SSL_CA` (y `AUDIT_DB_SSL_CA`) del `.env` y `pm2 restart api`. Si aplicaste el paso 5, **antes** ejecuta `ALTER USER 'app_user'@'HOST' REQUIRE NONE; ALTER USER 'audit_writer'@'HOST' REQUIRE NONE;`: con `REQUIRE SSL` y sin TLS en la API, la API no puede conectarse.
+
+**Qué se probó:** `server/tests/pool-config.test.js` (sin variables no se agrega `ssl`; con `DB_SSL_CA` o `AUDIT_DB_SSL_CA` se usa esa CA con `rejectUnauthorized: true`; un archivo ilegible falla). Contra el MySQL 8.0 de pruebas en Docker, con su `ca.pem` autogenerada, los dos pools conectaron cifrados (`Ssl_cipher = TLS_AES_256_GCM_SHA384`) y con una CA distinta la conexión se rechazó (`HANDSHAKE_SSL_ERROR`). **No se probó en las VM** ni con `REQUIRE SSL`.

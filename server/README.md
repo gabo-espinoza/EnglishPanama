@@ -53,6 +53,7 @@ Variables principales (ver `env.example`): `NODE_ENV`, `DB_HOST`, `DB_PORT`, `DB
 `AUTH_RATE_LIMIT_MAX`, `STAFF_JWT_SECRET`, `STAFF_MFA_KEY`, `AUDIT_DB_HOST`,
 `AUDIT_DB_PORT`, `AUDIT_DB_USER`, `AUDIT_DB_PASSWORD`, `AUDIT_DB_NAME`. Puertos:
 `DB_PORT` (vacio = 3306) y `AUDIT_DB_PORT` (vacio = el de `DB_PORT` y, si tampoco hay, 3306).
+TLS opcional hacia MySQL: `DB_SSL_CA` y `AUDIT_DB_SSL_CA` (ruta a la CA en PEM; vacio = sin TLS).
 Las opciones de los dos pools se arman en `src/config/poolConfig.js`.
 
 ## Pruebas

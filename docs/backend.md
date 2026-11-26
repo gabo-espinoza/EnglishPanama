@@ -154,6 +154,10 @@ Las opciones de los dos pools (base principal y base de auditoría) se arman en 
 | `DB_PORT` | Puerto de la base principal | `3306` |
 | `AUDIT_DB_HOST`, `AUDIT_DB_USER`, `AUDIT_DB_PASSWORD`, `AUDIT_DB_NAME` | Base de auditoría (`audit_writer`, solo `INSERT` y `SELECT`) | Fuera de producción caen en las `DB_*`; en producción son obligatorias |
 | `AUDIT_DB_PORT` | Puerto de la base de auditoría | El de `DB_PORT` y, si tampoco hay, `3306` |
+| `DB_SSL_CA` | Ruta al certificado de la CA de MySQL (PEM). Activa TLS con verificación del certificado (`ssl: { ca, rejectUnauthorized: true }`) | Sin TLS (como siempre) |
+| `AUDIT_DB_SSL_CA` | Lo mismo para la base de auditoría | El de `DB_SSL_CA` y, si tampoco hay, sin TLS |
+
+Si la ruta de `DB_SSL_CA` o `AUDIT_DB_SSL_CA` no se puede leer, el pool falla al crearse (al arrancar el servidor o en la primera auditoría) en lugar de conectarse sin cifrar. mysql2 verifica la cadena del certificado contra la CA, pero no el nombre del host (`verifyIdentity` queda desactivado), así que sirve la CA que MySQL 8 genera sola. Cómo activarlo en producción: `docs/migraciones-produccion.md`, sección 19.
 
 Arrancar:
 
