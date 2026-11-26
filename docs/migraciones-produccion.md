@@ -253,8 +253,8 @@ Variables que deben quedar en el `.env`:
 |---|---|---|
 | `NODE_ENV` | `production` | Con esto el servidor **exige** las variables `AUDIT_DB_*` y los scripts de demostración se niegan a correr (`seed-demo-content.js` solo con `--allow-production`, sección 14.1) |
 | `TRUST_PROXY` | `true` | **Imprescindible detrás de nginx**, junto con el cambio de la sección 6.1 |
-| `JWT_SECRET` | *(ya existe)* | No la cambies: invalidaría todas las sesiones |
-| `STAFF_JWT_SECRET` | *(generada arriba)* | Debe ser **distinta** de `JWT_SECRET` |
+| `JWT_SECRET` | *(ya existe)* | No la cambies: invalidaría todas las sesiones. Con `NODE_ENV=production` el servidor **no arranca** si tiene menos de 32 caracteres; solo en ese caso reemplázala por `openssl rand -hex 32` (todos tendrán que iniciar sesión de nuevo) |
+| `STAFF_JWT_SECRET` | *(generada arriba)* | Debe ser **distinta** de `JWT_SECRET` y tener al menos 32 caracteres: si no, el servidor **no arranca** en producción |
 | `STAFF_MFA_KEY` | *(generada arriba)* | 32 bytes en base64. **Respáldala fuera de la VM** (ver abajo) |
 | `AUDIT_DB_HOST` | `10.0.0.243` | IP privada de la VM-BD |
 | `AUDIT_DB_USER` | `audit_writer` | |
