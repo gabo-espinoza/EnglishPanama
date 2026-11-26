@@ -59,9 +59,10 @@ const PASSWORD = 'Dt-' + crypto.randomBytes(9).toString('hex');
 const OTHER_PASSWORD = 'Ot-' + crypto.randomBytes(9).toString('hex');
 
 const KEEP = ['PATH', 'Path', 'PATHEXT', 'SystemRoot', 'SYSTEMROOT', 'TEMP', 'TMP', 'HOME', 'USERPROFILE', 'COMSPEC', 'windir'];
+// Incluye los puertos: con MySQL en un puerto que no es 3306 el hijo no encontraria la base.
 const DB_KEYS = [
-    'DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME',
-    'AUDIT_DB_HOST', 'AUDIT_DB_USER', 'AUDIT_DB_PASSWORD', 'AUDIT_DB_NAME', 'STAFF_MFA_KEY'
+    'DB_HOST', 'DB_PORT', 'DB_USER', 'DB_PASSWORD', 'DB_NAME',
+    'AUDIT_DB_HOST', 'AUDIT_DB_PORT', 'AUDIT_DB_USER', 'AUDIT_DB_PASSWORD', 'AUDIT_DB_NAME', 'STAFF_MFA_KEY'
 ];
 
 // Seguridad: la limpieza borra por lista fija, pero nunca debe correr contra una base real.

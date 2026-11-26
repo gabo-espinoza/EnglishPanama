@@ -144,6 +144,17 @@ DEMO_STAFF_PASSWORD='<12+ caracteres>' node scripts/seed-demo-staff.js   # 24 cu
 
 `schema.sql` y `staff.sql` ya incluyen la estructura final de las migraciones: una base nueva no necesita correr `database/migrations/` (solo sirven para actualizar una base existente).
 
+### Conexión a MySQL
+
+Las opciones de los dos pools (base principal y base de auditoría) se arman en `src/config/poolConfig.js`, a partir de estas variables:
+
+| Variable | Uso | Si falta |
+|---|---|---|
+| `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | Base principal | Obligatorias |
+| `DB_PORT` | Puerto de la base principal | `3306` |
+| `AUDIT_DB_HOST`, `AUDIT_DB_USER`, `AUDIT_DB_PASSWORD`, `AUDIT_DB_NAME` | Base de auditoría (`audit_writer`, solo `INSERT` y `SELECT`) | Fuera de producción caen en las `DB_*`; en producción son obligatorias |
+| `AUDIT_DB_PORT` | Puerto de la base de auditoría | El de `DB_PORT` y, si tampoco hay, `3306` |
+
 Arrancar:
 
 ```bash
