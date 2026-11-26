@@ -89,7 +89,10 @@ async function login({ username, password, totp: code, ip }) {
         throw invalidCredentials();
     }
 
+    // Cuenta bloqueada o no activa: mismo error generico y el mismo trabajo bcrypt que una
+    // contrasena incorrecta (hash de relleno), para que el tiempo no delate el bloqueo.
     if (account.status !== 'active' || Number(account.is_locked) === 1) {
+        await timingSafeCheckStaff(password);
         await audit.record({
             actorType: 'staff', actorId: account.id, actorRole: account.role,
             action: 'staff.login', target: account.username, outcome: 'denied', ip

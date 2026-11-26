@@ -180,7 +180,9 @@ Dos reglas de seguridad del navegador, pensadas para equipos compartidos como lo
 
 El tiempo (`IDLE_TIMEOUT_MS`) y los avisos están en `api/sessionPolicy.js`.
 
-**Límite:** es una medida del navegador. Cerrar la sesión descarta el token en la pantalla, pero el servidor no lo revoca: sigue siendo válido hasta que expire (2 horas para estudiantes y docentes, 20 minutos para gestión).
+**Revocación en el servidor:** el botón "Cerrar sesión" de los paneles de estudiante y docente (`TopBar.jsx`) y el cierre por inactividad llaman primero a `POST /api/auth/logout` con el token que todavía está en memoria (`logout()` en `api/auth.js`) y después borran la sesión del navegador. El servidor sube `token_version`, así que ese token y cualquier otra sesión abierta de la cuenta dejan de valer. Los errores de red se ignoran: la sesión local se cierra igual. Al recargar la página ya no queda ningún token en memoria, así que ahí no hay nada que revocar: el token anterior vence solo (2 horas).
+
+**Límite:** el área de gestión no tiene endpoint de cierre de sesión en el servidor. Cerrar la sesión de gestión (o el cierre por inactividad) solo descarta el token en la pantalla; sigue siendo válido hasta que expire (20 minutos).
 
 ## Pendiente
 - Estudiante: jugar las actividades y mostrar XP en vivo. El reto diario se responde desde el panel y solo otorga XP si la respuesta es correcta.

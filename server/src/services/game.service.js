@@ -193,12 +193,21 @@ async function listQuestions({ module, level, q, limit } = {}) {
     return rows;
 }
 
+// Duplicado del indice UNIQUE(question_id) del pool. Otro indice unico (por ejemplo
+// uq_daily_position, opcional en phase6-hardening) no es "pregunta repetida" y no se traduce.
+function isDuplicateQuestionInPool(err) {
+    return Boolean(err) && err.code === 'ER_DUP_ENTRY'
+        && String(err.sqlMessage || err.message || '').includes('uq_daily_challenges_question');
+}
+
 async function addDailyChallenge(actor, { questionId, position }) {
     const qid = Number(questionId);
     if (!Number.isInteger(qid) || qid <= 0) throw new AppError('Pregunta no valida.', 400);
-    // Sin UNIQUE(question_id) (sin migracion): la verificacion y el INSERT van en una transaccion
-    // que bloquea la fila de la pregunta. Dos altas simultaneas de la misma pregunta se serializan
-    // y la segunda ve a la primera al revisar el pool.
+    // La verificacion y el INSERT van en una transaccion que bloquea la fila de la pregunta: dos
+    // altas simultaneas de la misma pregunta se serializan y la segunda ve a la primera al revisar
+    // el pool. Ademas la base tiene UNIQUE(question_id) (migracion phase7-daily-challenge-unique):
+    // si aun asi el INSERT choca (por ejemplo, una fila agregada fuera de esta funcion), el
+    // ER_DUP_ENTRY de ese indice se responde con el mismo 409 QUESTION_ALREADY_IN_POOL.
     const conn = await pool.getConnection();
     let result;
     let pos;
@@ -234,6 +243,9 @@ async function addDailyChallenge(actor, { questionId, position }) {
         await conn.commit();
     } catch (err) {
         try { await conn.rollback(); } catch { /* la conexion ya cayo */ }
+        if (isDuplicateQuestionInPool(err)) {
+            throw new AppError('Esa pregunta ya está en la lista de retos diarios.', 409, 'QUESTION_ALREADY_IN_POOL');
+        }
         throw err;
     } finally {
         conn.release();

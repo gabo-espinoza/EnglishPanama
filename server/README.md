@@ -41,17 +41,20 @@ traen la estructura final (incluye todo lo que agregaron las migraciones), y
 Esas migraciones son solo para actualizar una base que ya existe, y son repetibles
 (si la columna o tabla ya esta, no hacen nada). Orden: `phase2-lockout`,
 `phase2-platform-mfa`, `phase3-must-change-password`, `phase4-class-grade`,
-`phase5-content-review`, `phase6-totp-replay` y, opcional,
-`phase6-hardening` (solo el indice; sus `UNIQUE` estan comentados porque fallan con
-duplicados). Para produccion: `prod-upgrade-users.sql` / `prod-upgrade-all.sql`.
+`phase5-content-review`, `phase6-totp-replay`, `phase7-daily-challenge-unique`
+(UNIQUE de `daily_challenges.question_id`; se detiene sin tocar datos si hay
+duplicados) y, opcional, `phase6-hardening` (solo el indice; sus `UNIQUE` estan
+comentados porque fallan con duplicados). Para produccion: `prod-upgrade-users.sql` / `prod-upgrade-all.sql`.
 Guia para levantar MySQL en Docker y correr las pruebas:
 `docs/guia-pruebas-con-docker.pdf`.
 
-Variables principales (ver `env.example`): `NODE_ENV`, `DB_HOST`, `DB_USER`,
+Variables principales (ver `env.example`): `NODE_ENV`, `DB_HOST`, `DB_PORT`, `DB_USER`,
 `DB_PASSWORD`, `DB_NAME`, `JWT_SECRET`, `DEMO_MODE`, `CORS_ORIGIN`, `TRUST_PROXY`,
 `AUTH_RATE_LIMIT_MAX`, `STAFF_JWT_SECRET`, `STAFF_MFA_KEY`, `AUDIT_DB_HOST`,
-`AUDIT_DB_USER`, `AUDIT_DB_PASSWORD`, `AUDIT_DB_NAME`. No existe `DB_PORT`:
-el pool usa el puerto por defecto de MySQL (3306).
+`AUDIT_DB_PORT`, `AUDIT_DB_USER`, `AUDIT_DB_PASSWORD`, `AUDIT_DB_NAME`. Puertos:
+`DB_PORT` (vacio = 3306) y `AUDIT_DB_PORT` (vacio = el de `DB_PORT` y, si tampoco hay, 3306).
+TLS opcional hacia MySQL: `DB_SSL_CA` y `AUDIT_DB_SSL_CA` (ruta a la CA en PEM; vacio = sin TLS).
+Las opciones de los dos pools se arman en `src/config/poolConfig.js`.
 
 ## Pruebas
 

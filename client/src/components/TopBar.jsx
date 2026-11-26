@@ -1,12 +1,13 @@
 import { useNavigate } from 'react-router-dom';
-import { clearSession } from '../api/session';
+import { logout } from '../api/auth';
 
 // Barra superior de los paneles: nombre del usuario y cierre de sesión.
 export default function TopBar({ name }) {
     const navigate = useNavigate();
 
+    // Revoca la sesión en el servidor y la borra del navegador (ver api/auth.js).
     function handleLogout() {
-        clearSession();
+        logout();
         navigate('/login', { replace: true });
     }
 

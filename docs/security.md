@@ -72,6 +72,7 @@ y auditoria).
 | Robo de contrasena | **MFA con TOTP** (6 digitos, ventana de +/- 30 s), obligatorio en cada login de personal. |
 | Fuga del secreto MFA | El secreto TOTP se guarda **cifrado** (AES-256-GCM) con `STAFF_MFA_KEY`; nunca en claro. |
 | Fuerza bruta sobre una cuenta de gestion | Tras **3 intentos fallidos** la cuenta se bloquea **10 segundos** (`locked_until`). |
+| Saber por el tiempo de respuesta que una cuenta esta bloqueada | El camino de cuenta bloqueada (plataforma y gestion; en gestion tambien la cuenta suspendida) hace la misma comparacion bcrypt contra un hash de relleno que una contrasena incorrecta y responde el mismo `401` generico (`tests/locked-login-timing.test.js`). |
 | Cuenta de gestion secuestrada | `requireStaff` revalida en cada peticion: la cuenta existe, esta `active`, su `token_version` coincide y el rol/area siguen vigentes. |
 | Un rol actua fuera de su area | Cada ruta de gestion exige `area` **y** `role` (`requireStaff({ area, roles })`). Ej.: un `access_manager` no puede leer la auditoria (`403`). |
 | Un solo administrador con todo el poder | Hay **8 roles** repartidos en 7 areas; **no existe** una cuenta "superadmin". El cambio de permisos requiere solicitar + aprobar por otra cuenta. |

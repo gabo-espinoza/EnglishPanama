@@ -1,4 +1,5 @@
 import { apiRequest } from './client';
+import { clearSession, getSession } from './session';
 
 export function login(username, password) {
     return apiRequest('/auth/login', { method: 'POST', body: { username, password } });
@@ -31,4 +32,20 @@ export function mfaSetup(token) {
 
 export function mfaConfirm(token, totp) {
     return apiRequest('/auth/mfa/confirm', { method: 'POST', body: { totp }, token });
+}
+
+// Cierre de sesión de estudiantes y docentes. Primero pide al servidor que revoque la sesión
+// (POST /auth/logout sube token_version: el token actual y cualquier otra sesión abierta de la
+// cuenta dejan de valer) y después borra la sesión de la memoria del navegador.
+// La petición se lanza con el token ANTES de borrarlo, pero la sesión local se borra sin esperar
+// la respuesta: así la pantalla no se queda colgada y un nuevo inicio de sesión no puede ser
+// borrado por una respuesta tardía. Los errores (sin red, token ya vencido) se ignoran: la sesión
+// local se cierra igual. La promesa devuelta nunca se rechaza.
+export function logout() {
+    const session = getSession();
+    const request = session
+        ? apiRequest('/auth/logout', { method: 'POST', body: {}, token: session.token }).then(() => undefined, () => undefined)
+        : Promise.resolve();
+    clearSession();
+    return request;
 }

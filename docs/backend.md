@@ -144,6 +144,21 @@ DEMO_STAFF_PASSWORD='<12+ caracteres>' node scripts/seed-demo-staff.js   # 24 cu
 
 `schema.sql` y `staff.sql` ya incluyen la estructura final de las migraciones: una base nueva no necesita correr `database/migrations/` (solo sirven para actualizar una base existente).
 
+### Conexión a MySQL
+
+Las opciones de los dos pools (base principal y base de auditoría) se arman en `src/config/poolConfig.js`, a partir de estas variables:
+
+| Variable | Uso | Si falta |
+|---|---|---|
+| `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | Base principal | Obligatorias |
+| `DB_PORT` | Puerto de la base principal | `3306` |
+| `AUDIT_DB_HOST`, `AUDIT_DB_USER`, `AUDIT_DB_PASSWORD`, `AUDIT_DB_NAME` | Base de auditoría (`audit_writer`, solo `INSERT` y `SELECT`) | Fuera de producción caen en las `DB_*`; en producción son obligatorias |
+| `AUDIT_DB_PORT` | Puerto de la base de auditoría | El de `DB_PORT` y, si tampoco hay, `3306` |
+| `DB_SSL_CA` | Ruta al certificado de la CA de MySQL (PEM). Activa TLS con verificación del certificado (`ssl: { ca, rejectUnauthorized: true }`) | Sin TLS (como siempre) |
+| `AUDIT_DB_SSL_CA` | Lo mismo para la base de auditoría | El de `DB_SSL_CA` y, si tampoco hay, sin TLS |
+
+Si la ruta de `DB_SSL_CA` o `AUDIT_DB_SSL_CA` no se puede leer, el pool falla al crearse (al arrancar el servidor o en la primera auditoría) en lugar de conectarse sin cifrar. mysql2 verifica la cadena del certificado contra la CA, pero no el nombre del host (`verifyIdentity` queda desactivado), así que sirve la CA que MySQL 8 genera sola. Cómo activarlo en producción: `docs/migraciones-produccion.md`, sección 19.
+
 Arrancar:
 
 ```bash
@@ -173,6 +188,12 @@ alias ocultos del ranking y pool del reto diario. El contrato completo esta en
 - `database/migrations/phase6-hardening.sql`: indice en `activities.level` y
   unicidades propuestas. Trae `SELECT` de verificacion previa: no aplicar sin
   revisar duplicados.
+- `database/migrations/phase7-daily-challenge-unique.sql`: indice unico
+  `uq_daily_challenges_question` en `daily_challenges (question_id)`. Si hay preguntas
+  repetidas en el pool se detiene con un aviso y no cambia datos (verificacion previa en el
+  encabezado). El codigo funciona con y sin el indice: `addDailyChallenge` traduce el
+  `ER_DUP_ENTRY` a `409 QUESTION_ALREADY_IN_POOL`. Guia: `docs/migraciones-produccion.md`,
+  seccion 18.
 
 ## Como probarlo
 
