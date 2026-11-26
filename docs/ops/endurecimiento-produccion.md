@@ -123,3 +123,19 @@ En `/var/www/englishpanama/api/.env` cambiar `AUTH_RATE_LIMIT_MAX=200` por `AUTH
 - **TLS entre la API y MySQL:** el código ya lo admite de forma opcional (`DB_SSL_CA`, ver `docs/backend.md`); activarlo y luego exigirlo con `REQUIRE SSL` en los usuarios.
 - **Ubuntu 20.04 en la VM-APP:** fuera del soporte estándar; planificar la migración a una versión con soporte.
 - **Reglas de red de Oracle:** revisar en la consola las listas de seguridad y si la VM-BD tiene IP pública.
+
+---
+
+## Registro de aplicación
+
+**26/11/2026 (pasos 1 a 5, autorizados por el líder técnico; conexión por SSH con la llave temporal del proyecto):**
+
+| Paso | Resultado de la verificación |
+|---|---|
+| 1. PM2 con arranque automático | `pm2-ubuntu` habilitado; `api` en línea; `/api/health` 200 |
+| 2. Respaldo programado | `/etc/cron.d/ep-backup` (06:30 UTC); primera ejecución con las dos bases en `/home/ubuntu/backups/auto/`; prueba de restauración: `users` 8/8, `activities` 12/12, `questions` 39/39, `staff_accounts` 10/10; la base de prueba se borró |
+| 3. `ufw` en la VM-BD | Activo: entrada denegada por defecto, SSH permitido, 3306 solo desde `10.0.0.186`; desde la VM-APP el puerto 3306 conecta y un login incorrecto responde 401 (la API llega a la base) |
+| 4. Cabeceras y `server_tokens off` | El cliente responde con CSP, `X-Frame-Options: DENY`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` y COOP; `Server: nginx` sin versión; la API conserva helmet. En el navegador, `/login`, `/register` y `/staff/login` cargan sin violaciones de CSP (el navegador ignora COOP porque el sitio aún es HTTP) |
+| 5. `PermitRootLogin no` | Ambas VM: `/etc/ssh/sshd_config.d/10-no-root.conf`, `sshd -t` correcto; nuevas sesiones como `ubuntu` funcionan |
+
+Respaldos de configuración en `/home/ubuntu/` de cada VM (`*.antes-cabeceras.bak`). Pendiente: paso 6 (después de la demo), copia de respaldos fuera de la VM, y en la red de Oracle quitar la regla del puerto 8888 (no hay nada escuchando) y restringir el 22 a IP conocidas.
