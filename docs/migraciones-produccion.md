@@ -119,7 +119,8 @@ sudo ss -ltnp | grep -E ':80 |:443 |:3000 '
 Notas:
 
 - Con la tabla `users` vacía, la consulta de verificación 2 del paso 5.4 no imprime filas: es lo normal.
-- La VM-APP corre Node 24 y el flujo de despliegue compila con Node 20. Las dependencias del servidor no tienen binarios dependientes de la versión de Node, y la API ya corre así hoy; no se espera ningún problema.
+- La VM-APP corre Node 24 y el flujo de despliegue también usa Node 24, así que `node_modules` (incluido el binario de `bcrypt`) se instala con la misma versión mayor que lo ejecuta.
+- El despliegue no copia `server/tests/` a la VM. Como `rsync --delete` no borra lo excluido, una carpeta `tests/` de un despliegue anterior queda en `/var/www/englishpanama/api/tests/`; se puede borrar a mano una vez (`rm -rf /var/www/englishpanama/api/tests`).
 
 ## 4. Respaldo
 
