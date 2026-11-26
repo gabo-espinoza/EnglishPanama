@@ -41,9 +41,10 @@ traen la estructura final (incluye todo lo que agregaron las migraciones), y
 Esas migraciones son solo para actualizar una base que ya existe, y son repetibles
 (si la columna o tabla ya esta, no hacen nada). Orden: `phase2-lockout`,
 `phase2-platform-mfa`, `phase3-must-change-password`, `phase4-class-grade`,
-`phase5-content-review`, `phase6-totp-replay` y, opcional,
-`phase6-hardening` (solo el indice; sus `UNIQUE` estan comentados porque fallan con
-duplicados). Para produccion: `prod-upgrade-users.sql` / `prod-upgrade-all.sql`.
+`phase5-content-review`, `phase6-totp-replay`, `phase7-daily-challenge-unique`
+(UNIQUE de `daily_challenges.question_id`; se detiene sin tocar datos si hay
+duplicados) y, opcional, `phase6-hardening` (solo el indice; sus `UNIQUE` estan
+comentados porque fallan con duplicados). Para produccion: `prod-upgrade-users.sql` / `prod-upgrade-all.sql`.
 Guia para levantar MySQL en Docker y correr las pruebas:
 `docs/guia-pruebas-con-docker.pdf`.
 

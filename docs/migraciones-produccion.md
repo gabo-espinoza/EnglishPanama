@@ -754,3 +754,44 @@ Esperado: las seis cabeceras. Si algo falla: `sudo cp -a ~/nginx-backup-<fecha> 
 **Después de aplicarlo, abre `/login` y `/staff/login` con la consola del navegador abierta**: no debe haber mensajes de "Content Security Policy" y las fuentes (Poppins, Fredoka One) deben verse. Si aparece alguno, indica qué recurso se bloquea; no relajes `script-src`.
 
 **Qué se probó y qué no.** Con nginx 1.30 en un contenedor delante del servidor de desarrollo de Vite, el snippet agrega las seis cabeceras y el cliente carga sin violaciones de CSP (login, login de gestión, fuentes de Google). El servidor de desarrollo inyecta un script en línea que `script-src 'self'` bloquea; por eso la prueba en el navegador se hizo con una copia que relaja **solo** `script-src`. Producción mantiene `script-src 'self'` porque el build de Vite no genera scripts en línea (`client/index.html` solo carga un módulo por `src`). **No se probó con el build real** ni en la VM. `Cross-Origin-Opener-Policy` la ignoran los navegadores mientras el sitio use HTTP sin cifrar (avisan en la consola); surte efecto con HTTPS. HSTS y `upgrade-insecure-requests` se agregan junto con HTTPS, que sigue pendiente (sección 10).
+
+## 18. Migración phase7: una pregunta una sola vez en el reto diario
+
+`server/database/migrations/phase7-daily-challenge-unique.sql` agrega el índice único `uq_daily_challenges_question` sobre `daily_challenges (question_id)`. Hasta ahora solo el código impedía agregar dos veces la misma pregunta al pool del reto diario (`game.service.addDailyChallenge`, con una transacción que bloquea la fila de la pregunta); con el índice también lo impide la base, aunque la fila se agregue a mano o desde otro script. El código responde a ese choque con el mismo `409 QUESTION_ALREADY_IN_POOL` de siempre, así que **funciona con y sin la migración**: se puede aplicar antes o después del despliegue. `schema.sql` ya incluye el índice (una base nueva no necesita la migración).
+
+**Cuándo:** en cualquier ventana de mantenimiento, con respaldo previo (sección 4). Crear el índice en una tabla tan chica tarda menos de un segundo.
+
+**[TU PC]** — llevar el archivo a la VM-BD (igual que en la sección 5.1):
+
+```bash
+scp server/database/migrations/phase7-daily-challenge-unique.sql TU_USUARIO@IP_VM_BD:~/
+```
+
+**[VM-BD]** — 1) verificación previa (solo lectura). Debe devolver **0 filas**:
+
+```bash
+sudo mysql englishpanama -e "SELECT question_id, COUNT(*) AS n, GROUP_CONCAT(id ORDER BY id) AS ids \
+  FROM daily_challenges GROUP BY question_id HAVING n > 1;"
+```
+
+Si devuelve filas, hay preguntas repetidas en el pool. **La migración no borra nada**: si la corres así, se detiene con un error cuyo texto empieza con `HAY_PREGUNTAS_REPETIDAS_EN_daily_challenges` y no cambia la tabla. Decide a mano qué fila de cada pregunta se queda (la columna `ids` lista las filas). Ojo: `daily_completions` tiene `ON DELETE CASCADE` hacia `daily_challenges`, así que borrar un reto borra los completados de ese reto; conserva la fila que tenga completados (`SELECT challenge_id, COUNT(*) FROM daily_completions WHERE challenge_id IN (...) GROUP BY challenge_id;`). Luego repite la verificación.
+
+**[VM-BD]** — 2) aplicar y comprobar:
+
+```bash
+sudo mysql englishpanama < ~/phase7-daily-challenge-unique.sql && echo "phase7 OK"
+sudo mysql englishpanama -e "SHOW INDEX FROM daily_challenges WHERE Key_name = 'uq_daily_challenges_question';"
+```
+
+Esperado: una fila con `Non_unique = 0` y `Column_name = question_id`. Es idempotente: si el índice ya existe, no hace nada.
+
+**Vuelta atrás** (no cambia datos):
+
+```bash
+sudo mysql englishpanama -e "DROP INDEX uq_daily_challenges_question ON daily_challenges;"
+```
+
+**Pruebas:** `server/tests/daily-challenge-unique.test.js` (el `INSERT` repetido se rechaza en la base y el servicio responde `409`). La migración se probó en MySQL 8.0 con duplicados (se detiene con el aviso y no toca filas), sin duplicados (crea el índice) y dos veces seguidas (la segunda no hace nada).
+
+- [ ] Verificación previa sin filas
+- [ ] `phase7-daily-challenge-unique.sql` aplicado en la VM-BD y el índice visible

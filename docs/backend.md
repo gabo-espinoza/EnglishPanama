@@ -184,6 +184,12 @@ alias ocultos del ranking y pool del reto diario. El contrato completo esta en
 - `database/migrations/phase6-hardening.sql`: indice en `activities.level` y
   unicidades propuestas. Trae `SELECT` de verificacion previa: no aplicar sin
   revisar duplicados.
+- `database/migrations/phase7-daily-challenge-unique.sql`: indice unico
+  `uq_daily_challenges_question` en `daily_challenges (question_id)`. Si hay preguntas
+  repetidas en el pool se detiene con un aviso y no cambia datos (verificacion previa en el
+  encabezado). El codigo funciona con y sin el indice: `addDailyChallenge` traduce el
+  `ER_DUP_ENTRY` a `409 QUESTION_ALREADY_IN_POOL`. Guia: `docs/migraciones-produccion.md`,
+  seccion 18.
 
 ## Como probarlo
 
