@@ -91,9 +91,12 @@ export default function SetInitialPassword() {
                             onChange={(e) => setNewPassword(e.target.value)}
                             autoComplete="new-password"
                             placeholder="••••••••"
+                            minLength={8}
+                            maxLength={72}
                             autoFocus
                             required
                         />
+                        <p className="text-xs text-gray-500 mt-1">Mínimo 8 caracteres.</p>
                     </div>
 
                     <div>

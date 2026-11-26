@@ -109,7 +109,7 @@ Sin conexión, `fetch` falla antes de recibir respuesta. En ese caso `apiRequest
 
 ### Creación de la contraseña inicial (`/password/initial`)
 - Llega aquí el docente recién creado por el gestor de accesos. Su cuenta nace con la bandera `must_change_password`, así que `POST /api/auth/login` no devuelve sesión sino `{ passwordChangeRequired: true, passwordToken, expiresIn }`. El Login navega a `/password/initial` y le pasa el `passwordToken` en el estado del router (historial del navegador), nunca en `localStorage` ni en la URL.
-- Pantalla "Crea tu contraseña": dos campos (contraseña nueva y repetirla). Si no coinciden se avisa en el cliente sin viajar al servidor; el servidor sigue siendo la autoridad (4 a 72 caracteres y distinta de la temporal).
+- Pantalla "Crea tu contraseña": dos campos (contraseña nueva y repetirla). Si no coinciden se avisa en el cliente sin viajar al servidor; el servidor sigue siendo la autoridad (8 a 72 caracteres y distinta de la temporal).
 - Envía `POST /api/auth/set-initial-password` con el `passwordToken`. La respuesta continúa el flujo normal del login: un docente sin autenticador recibe `{ mfaSetupRequired, enrollToken }` y pasa a `/mfa/setup`; con MFA activo vuelve a `/login` con el reto del segundo paso; en otro caso se guarda la sesión y entra a su panel.
 - `401` (el token de 15 minutos venció o se revocó) y `409 PASSWORD_ALREADY_SET` (la contraseña ya fue creada) devuelven al login con un aviso. Los demás errores (400, 429) se muestran en el formulario.
 - Sin `passwordToken` en el estado (por ejemplo, al abrir la ruta directamente), la ruta redirige al login. El estado del router vive en `window.history.state`, pero la política de sesión (ver "Sesión") lo descarta al recargar: el docente vuelve al login y repite el primer paso (la contraseña temporal sigue valiendo, no se gasta).
@@ -180,7 +180,9 @@ Dos reglas de seguridad del navegador, pensadas para equipos compartidos como lo
 
 El tiempo (`IDLE_TIMEOUT_MS`) y los avisos están en `api/sessionPolicy.js`.
 
-**Límite:** es una medida del navegador. Cerrar la sesión descarta el token en la pantalla, pero el servidor no lo revoca: sigue siendo válido hasta que expire (2 horas para estudiantes y docentes, 20 minutos para gestión).
+**Revocación en el servidor:** el botón "Cerrar sesión" de los paneles de estudiante y docente (`TopBar.jsx`) y el cierre por inactividad llaman primero a `POST /api/auth/logout` con el token que todavía está en memoria (`logout()` en `api/auth.js`) y después borran la sesión del navegador. El servidor sube `token_version`, así que ese token y cualquier otra sesión abierta de la cuenta dejan de valer. Los errores de red se ignoran: la sesión local se cierra igual. Al recargar la página ya no queda ningún token en memoria, así que ahí no hay nada que revocar: el token anterior vence solo (2 horas).
+
+**Límite:** el área de gestión no tiene endpoint de cierre de sesión en el servidor. Cerrar la sesión de gestión (o el cierre por inactividad) solo descarta el token en la pantalla; sigue siendo válido hasta que expire (20 minutos).
 
 ## Pendiente
 - Estudiante: jugar las actividades y mostrar XP en vivo. El reto diario se responde desde el panel y solo otorga XP si la respuesta es correcta.

@@ -157,7 +157,7 @@ Eso es exactamente la parte que sigue (ver seccion 3).
 | Cuatro ojos en `reset-mfa` / `reset-grade` | Fase A (hoy es acción directa de `access_manager`) |
 | `audit.record()` fail-closed si cae la BD de auditoría | Pregunta abierta `docs/specs/staff-fase-a.md:245` |
 | HTTPS / CSP del HTML estático / cuenta de emergencia / alertas / respaldos cifrados | Infraestructura |
-| `deploy.yml` con `npm test` como gate de CI | Líder técnico |
+| ~~`deploy.yml` con `npm test` como gate de CI~~ Hecho: job `test` con MySQL 8.0 desechable; `deploy` depende de él | Líder técnico |
 | Recuperación de contraseña, mínimo de 4 caracteres, rotación de `classCode` | Excluidos del MVP / pendientes de política |
 
 ---

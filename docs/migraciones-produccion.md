@@ -119,7 +119,8 @@ sudo ss -ltnp | grep -E ':80 |:443 |:3000 '
 Notas:
 
 - Con la tabla `users` vacía, la consulta de verificación 2 del paso 5.4 no imprime filas: es lo normal.
-- La VM-APP corre Node 24 y el flujo de despliegue compila con Node 20. Las dependencias del servidor no tienen binarios dependientes de la versión de Node, y la API ya corre así hoy; no se espera ningún problema.
+- La VM-APP corre Node 24 y el flujo de despliegue también usa Node 24, así que `node_modules` (incluido el binario de `bcrypt`) se instala con la misma versión mayor que lo ejecuta.
+- El despliegue no copia `server/tests/` a la VM. Como `rsync --delete` no borra lo excluido, una carpeta `tests/` de un despliegue anterior queda en `/var/www/englishpanama/api/tests/`; se puede borrar a mano una vez (`rm -rf /var/www/englishpanama/api/tests`).
 
 ## 4. Respaldo
 
@@ -253,8 +254,8 @@ Variables que deben quedar en el `.env`:
 |---|---|---|
 | `NODE_ENV` | `production` | Con esto el servidor **exige** las variables `AUDIT_DB_*` y los scripts de demostración se niegan a correr (`seed-demo-content.js` solo con `--allow-production`, sección 14.1) |
 | `TRUST_PROXY` | `true` | **Imprescindible detrás de nginx**, junto con el cambio de la sección 6.1 |
-| `JWT_SECRET` | *(ya existe)* | No la cambies: invalidaría todas las sesiones |
-| `STAFF_JWT_SECRET` | *(generada arriba)* | Debe ser **distinta** de `JWT_SECRET` |
+| `JWT_SECRET` | *(ya existe)* | No la cambies: invalidaría todas las sesiones. Con `NODE_ENV=production` el servidor **no arranca** si tiene menos de 32 caracteres; solo en ese caso reemplázala por `openssl rand -hex 32` (todos tendrán que iniciar sesión de nuevo) |
+| `STAFF_JWT_SECRET` | *(generada arriba)* | Debe ser **distinta** de `JWT_SECRET` y tener al menos 32 caracteres: si no, el servidor **no arranca** en producción |
 | `STAFF_MFA_KEY` | *(generada arriba)* | 32 bytes en base64. **Respáldala fuera de la VM** (ver abajo) |
 | `AUDIT_DB_HOST` | `10.0.0.243` | IP privada de la VM-BD |
 | `AUDIT_DB_USER` | `audit_writer` | |
@@ -639,6 +640,7 @@ sudo mysql englishpanama -e "DELETE FROM activities WHERE is_example = 1;"
 - [ ] `phase4-class-grade.sql` aplicado en la VM-BD **antes** del despliegue; `SHOW COLUMNS FROM teachers LIKE 'grade%'` muestra `grade` y `grade_locked_at`, y `SHOW COLUMNS FROM activities LIKE 'level'` / `'is_example'` muestran las columnas (sección 14)
 - [ ] Docentes avisados de que deben declarar el grado de su clase al entrar; ejemplos cargados **a mano** con `node scripts/seed-demo-content.js --allow-production` solo si se decidió (sección 14.1)
 - [ ] nginx envía `X-Forwarded-For $remote_addr` (sección 6.1) y `nginx -t` pasa antes de recargar
+- [ ] Cabeceras de seguridad del cliente incluidas en nginx y comprobadas con `curl -sI` (sección 17)
 - [ ] Desde fuera, `http://150.136.50.253:3000` **no** responde (sección 10)
 - [ ] `.env` actualizado: `NODE_ENV`, `TRUST_PROXY=true`, `STAFF_*`, `AUDIT_DB_*`; respaldo de `STAFF_MFA_KEY` fuera de la VM (sección 6)
 - [ ] PR #8 (MFA docente, que incluye #7) en `develop`; merge `develop` → `main` y Actions en verde (sección 7)
@@ -715,3 +717,145 @@ El día del reto diario pasa de ser el día UTC a ser el día de Panama (UTC-5 f
 - Para no tener ni ese caso, desplegar entre las 00:00 y las 19:00 de Panama (05:00 a 24:00 UTC).
 
 **Pruebas:** `server/tests/daily-challenge-panama-day.test.js` (reloj congelado) y `server/tests/day.test.js`.
+
+## 17. Cabeceras de seguridad del cliente en nginx (hallazgos D-012 a D-016)
+
+El análisis dinámico (OWASP ZAP) y una comprobación de solo lectura en la VM mostraron que nginx entrega el HTML del cliente **sin** `Content-Security-Policy`, `X-Frame-Options`, `X-Content-Type-Options` ni `Permissions-Policy`: solo la API recibe cabeceras de seguridad (las pone `helmet`). El archivo `docs/nginx/englishpanama-cabeceras-seguridad.conf` las agrega, con un comentario por cada directiva de la CSP. No toca la API ni el código; es independiente del despliegue y reversible.
+
+**[VM-APP]**
+
+```bash
+# 1) Copiar el snippet (desde una copia del repositorio) y encontrar el archivo del sitio
+sudo cp docs/nginx/englishpanama-cabeceras-seguridad.conf /etc/nginx/snippets/
+sudo grep -Rl "proxy_pass http://localhost:3000" /etc/nginx/
+
+# 2) Respaldo
+sudo cp -a ARCHIVO ~/nginx-backup-$(date +%Y%m%d)
+```
+
+3. Edita `ARCHIVO` (en `/etc/nginx/sites-available/`) y agrega esta línea dentro de **cada** `location` que sirva el cliente (normalmente `location / { ... }`), **no** dentro de `location /api/`:
+
+```nginx
+include snippets/englishpanama-cabeceras-seguridad.conf;
+```
+
+`add_header` no se hereda hacia un `location` que ya tenga el suyo: si hay uno para `.js`/`.css`, repite el `include` allí.
+
+```bash
+# 4) Validar ANTES de recargar, y recargar
+sudo nginx -t && sudo systemctl reload nginx
+
+# 5) Comprobar desde la VM
+curl -sI http://localhost/ | grep -iE "content-security|x-frame|x-content-type|referrer|permissions|cross-origin"
+```
+
+Esperado: las seis cabeceras. Si algo falla: `sudo cp -a ~/nginx-backup-<fecha> ARCHIVO && sudo nginx -t && sudo systemctl reload nginx`.
+
+**Después de aplicarlo, abre `/login` y `/staff/login` con la consola del navegador abierta**: no debe haber mensajes de "Content Security Policy" y las fuentes (Poppins, Fredoka One) deben verse. Si aparece alguno, indica qué recurso se bloquea; no relajes `script-src`.
+
+**Qué se probó y qué no.** Con nginx 1.30 en un contenedor delante del servidor de desarrollo de Vite, el snippet agrega las seis cabeceras y el cliente carga sin violaciones de CSP (login, login de gestión, fuentes de Google). El servidor de desarrollo inyecta un script en línea que `script-src 'self'` bloquea; por eso la prueba en el navegador se hizo con una copia que relaja **solo** `script-src`. Producción mantiene `script-src 'self'` porque el build de Vite no genera scripts en línea (`client/index.html` solo carga un módulo por `src`). **No se probó con el build real** ni en la VM. `Cross-Origin-Opener-Policy` la ignoran los navegadores mientras el sitio use HTTP sin cifrar (avisan en la consola); surte efecto con HTTPS. HSTS y `upgrade-insecure-requests` se agregan junto con HTTPS, que sigue pendiente (sección 10).
+
+## 18. Migración phase7: una pregunta una sola vez en el reto diario
+
+`server/database/migrations/phase7-daily-challenge-unique.sql` agrega el índice único `uq_daily_challenges_question` sobre `daily_challenges (question_id)`. Hasta ahora solo el código impedía agregar dos veces la misma pregunta al pool del reto diario (`game.service.addDailyChallenge`, con una transacción que bloquea la fila de la pregunta); con el índice también lo impide la base, aunque la fila se agregue a mano o desde otro script. El código responde a ese choque con el mismo `409 QUESTION_ALREADY_IN_POOL` de siempre, así que **funciona con y sin la migración**: se puede aplicar antes o después del despliegue. `schema.sql` ya incluye el índice (una base nueva no necesita la migración).
+
+**Cuándo:** en cualquier ventana de mantenimiento, con respaldo previo (sección 4). Crear el índice en una tabla tan chica tarda menos de un segundo.
+
+**[TU PC]** — llevar el archivo a la VM-BD (igual que en la sección 5.1):
+
+```bash
+scp server/database/migrations/phase7-daily-challenge-unique.sql TU_USUARIO@IP_VM_BD:~/
+```
+
+**[VM-BD]** — 1) verificación previa (solo lectura). Debe devolver **0 filas**:
+
+```bash
+sudo mysql englishpanama -e "SELECT question_id, COUNT(*) AS n, GROUP_CONCAT(id ORDER BY id) AS ids \
+  FROM daily_challenges GROUP BY question_id HAVING n > 1;"
+```
+
+Si devuelve filas, hay preguntas repetidas en el pool. **La migración no borra nada**: si la corres así, se detiene con un error cuyo texto empieza con `HAY_PREGUNTAS_REPETIDAS_EN_daily_challenges` y no cambia la tabla. Decide a mano qué fila de cada pregunta se queda (la columna `ids` lista las filas). Ojo: `daily_completions` tiene `ON DELETE CASCADE` hacia `daily_challenges`, así que borrar un reto borra los completados de ese reto; conserva la fila que tenga completados (`SELECT challenge_id, COUNT(*) FROM daily_completions WHERE challenge_id IN (...) GROUP BY challenge_id;`). Luego repite la verificación.
+
+**[VM-BD]** — 2) aplicar y comprobar:
+
+```bash
+sudo mysql englishpanama < ~/phase7-daily-challenge-unique.sql && echo "phase7 OK"
+sudo mysql englishpanama -e "SHOW INDEX FROM daily_challenges WHERE Key_name = 'uq_daily_challenges_question';"
+```
+
+Esperado: una fila con `Non_unique = 0` y `Column_name = question_id`. Es idempotente: si el índice ya existe, no hace nada.
+
+**Vuelta atrás** (no cambia datos):
+
+```bash
+sudo mysql englishpanama -e "DROP INDEX uq_daily_challenges_question ON daily_challenges;"
+```
+
+**Pruebas:** `server/tests/daily-challenge-unique.test.js` (el `INSERT` repetido se rechaza en la base y el servicio responde `409`). La migración se probó en MySQL 8.0 con duplicados (se detiene con el aviso y no toca filas), sin duplicados (crea el índice) y dos veces seguidas (la segunda no hace nada).
+
+- [ ] Verificación previa sin filas
+- [ ] `phase7-daily-challenge-unique.sql` aplicado en la VM-BD y el índice visible
+
+## 19. TLS entre la API y MySQL (opcional)
+
+La API (VM-APP) habla con MySQL (VM-BD, `10.0.0.243:3306`) por la red privada **sin cifrar**. Es una red interna de Oracle Cloud, pero las contraseñas de `app_user` y `audit_writer` y todos los datos viajan en claro por ella. El servidor admite TLS opcional, activado por variables de entorno: sin ellas, todo sigue igual.
+
+| Variable | Valor |
+|---|---|
+| `DB_SSL_CA` | Ruta en la VM-APP al certificado de la CA de MySQL (PEM) |
+| `AUDIT_DB_SSL_CA` | Opcional. Si falta, la base de auditoría usa la de `DB_SSL_CA` |
+
+Con la variable, la conexión va cifrada y la API verifica el certificado del servidor contra esa CA (`rejectUnauthorized: true`). No verifica el nombre del host, así que sirve la CA que MySQL 8 genera sola al instalarse. Si el archivo no se puede leer, la API **no arranca** (no se conecta sin cifrar en silencio).
+
+**[VM-BD]** — 1) comprobar que MySQL tiene TLS activo y dónde está la CA:
+
+```bash
+sudo mysql -e "SHOW VARIABLES LIKE 'have_ssl'; SHOW VARIABLES LIKE 'ssl_ca';"
+# esperado: have_ssl = YES; ssl_ca = ca.pem (relativo a /var/lib/mysql)
+sudo ls -l /var/lib/mysql/ca.pem
+```
+
+El archivo `ca.pem` es público (es el certificado, no la clave); **nunca copies `ca-key.pem` ni `server-key.pem`**.
+
+**[TU PC]** — 2) copiar la CA de la VM-BD a la VM-APP (por ejemplo, pasando por tu equipo):
+
+```bash
+ssh TU_USUARIO@IP_VM_BD "sudo cat /var/lib/mysql/ca.pem" > mysql-ca.pem
+scp mysql-ca.pem TU_USUARIO@150.136.50.253:~/
+```
+
+**[VM-APP]** — 3) dejarla fuera de la carpeta que reemplaza el despliegue y activarla:
+
+```bash
+sudo install -d -m 755 /etc/englishpanama
+sudo install -m 644 ~/mysql-ca.pem /etc/englishpanama/mysql-ca.pem
+cd /var/www/englishpanama/api
+cp .env ~/env-backup-$(date +%Y%m%d-%H%M)
+printf 'DB_SSL_CA=/etc/englishpanama/mysql-ca.pem\n' >> .env
+pm2 restart api && pm2 logs api --lines 20 --nostream
+```
+
+No la guardes dentro de `/var/www/englishpanama/api/`: el despliegue usa `rsync --delete` y la borraría.
+
+**[VM-BD]** — 4) comprobar que las conexiones de la API van cifradas:
+
+```bash
+sudo mysql -e "SELECT s.user, t.VARIABLE_VALUE AS cifrado FROM performance_schema.status_by_thread t \
+  JOIN performance_schema.threads th ON th.THREAD_ID = t.THREAD_ID \
+  JOIN information_schema.PROCESSLIST s ON s.ID = th.PROCESSLIST_ID \
+  WHERE t.VARIABLE_NAME = 'Ssl_cipher' AND s.user IN ('app_user', 'audit_writer');"
+```
+
+Esperado: filas de `app_user` y `audit_writer` con un cifrado (por ejemplo `TLS_AES_256_GCM_SHA384`), no vacío. Prueba también el login y una acción de gestión (que escribe en la auditoría).
+
+**[VM-BD]** — 5) opcional, **solo después del paso 4**: exigir TLS a los usuarios, para que nadie pueda conectarse con ellos sin cifrar:
+
+```bash
+sudo mysql -e "SELECT user, host FROM mysql.user WHERE user IN ('app_user', 'audit_writer');"
+# usa el host exacto que devuelva la consulta anterior (por ejemplo '10.0.0.%')
+sudo mysql -e "ALTER USER 'app_user'@'HOST' REQUIRE SSL; ALTER USER 'audit_writer'@'HOST' REQUIRE SSL;"
+```
+
+**Vuelta atrás:** quitar `DB_SSL_CA` (y `AUDIT_DB_SSL_CA`) del `.env` y `pm2 restart api`. Si aplicaste el paso 5, **antes** ejecuta `ALTER USER 'app_user'@'HOST' REQUIRE NONE; ALTER USER 'audit_writer'@'HOST' REQUIRE NONE;`: con `REQUIRE SSL` y sin TLS en la API, la API no puede conectarse.
+
+**Qué se probó:** `server/tests/pool-config.test.js` (sin variables no se agrega `ssl`; con `DB_SSL_CA` o `AUDIT_DB_SSL_CA` se usa esa CA con `rejectUnauthorized: true`; un archivo ilegible falla). Contra el MySQL 8.0 de pruebas en Docker, con su `ca.pem` autogenerada, los dos pools conectaron cifrados (`Ssl_cipher = TLS_AES_256_GCM_SHA384`) y con una CA distinta la conexión se rechazó (`HANDSHAKE_SSL_ERROR`). **No se probó en las VM** ni con `REQUIRE SSL`.

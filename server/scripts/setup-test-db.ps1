@@ -116,4 +116,4 @@ Write-Host ''
 Write-Host "Listo. Base de pruebas en 127.0.0.1:$Port (contenedor $Name)."
 Write-Host 'Siguiente paso, en la terminal donde vayas a probar:'
 Write-Host '   .\server\scripts\setup-test-db.ps1 -Env | Invoke-Expression'
-Write-Host '   cd server; npm ci; node --test'
+Write-Host '   cd server; npm ci; npm test'

@@ -62,8 +62,9 @@ npm run dev                # sirve en localhost:5173, con proxy a la API en :300
 
 Esto es automatico, nadie lo dispara a mano:
 
-1. GitHub Actions (`.github/workflows/deploy.yml`) compila el cliente (`client/dist`) y las dependencias de produccion del servidor.
-2. Copia ambos por `rsync` a la VM de la aplicacion, **sin tocar** el `.env` que vive ahi.
+0. El job `test` del mismo flujo corre la suite del servidor (`npm test`) contra un MySQL 8.0 desechable. Si falla, no se despliega nada (el job `deploy` tiene `needs: test`). Ese mismo job `test` corre tambien en cada pull request a `develop` o `main` y se puede lanzar a mano (*Run workflow*); en esos casos **nunca** despliega.
+1. GitHub Actions (`.github/workflows/deploy.yml`) compila el cliente (`client/dist`) con Node 24 (la version de la VM) y las dependencias de produccion del servidor.
+2. Copia ambos por `rsync` a la VM de la aplicacion, **sin tocar** el `.env` que vive ahi. La carpeta `server/tests/` no se copia (`server/database/` si).
 3. Reinicia el proceso de la API con PM2.
 
 Un push a `main` que solo modifique archivos de documentacion (`docs/**` o `*.md`) no dispara el despliegue - no tiene sentido reiniciar el servidor por un cambio de texto. Todo el proceso de despliegue real tarda menos de un minuto y se puede seguir en la pestana **Actions** del repositorio.

@@ -1,15 +1,54 @@
 name: Deploy to production
 
+# test: corre la suite del servidor contra un MySQL 8.0 desechable en cada pull request a
+#       develop o main, en cada push a main y a mano (workflow_dispatch).
+# deploy: SOLO en push a main y solo si test paso (needs: test).
 on:
   push:
     branches: [main]
     paths-ignore:
       - 'docs/**'
       - '**.md'
+  pull_request:
+    branches: [develop, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  deploy:
+  test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # MySQL desechable, solo para esta corrida. La clave de root es de este contenedor
+    # efimero (no es un secreto real); las de app_user y audit_writer se generan en la corrida.
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-only-for-this-job
+          MYSQL_DATABASE: englishpanama
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pci-root-only-for-this-job --silent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+
+    env:
+      MYSQL_ROOT_PASSWORD: ci-root-only-for-this-job
+      NODE_ENV: test
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      DB_USER: app_user
+      DB_NAME: englishpanama
+      AUDIT_DB_HOST: 127.0.0.1
+      AUDIT_DB_PORT: '3306'
+      AUDIT_DB_USER: audit_writer
+      AUDIT_DB_NAME: englishpanama_audit
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -17,7 +56,89 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      # Claves y secretos de prueba generados en cada corrida: nunca se guardan ni se imprimen.
+      - name: Generar secretos de prueba
+        run: |
+          DB_PASSWORD="$(openssl rand -hex 24)"
+          AUDIT_DB_PASSWORD="$(openssl rand -hex 24)"
+          JWT_SECRET="$(openssl rand -hex 32)"
+          STAFF_JWT_SECRET="$(openssl rand -hex 32)"
+          STAFF_MFA_KEY="$(openssl rand -base64 32)"
+          for v in "$DB_PASSWORD" "$AUDIT_DB_PASSWORD" "$JWT_SECRET" "$STAFF_JWT_SECRET" "$STAFF_MFA_KEY"; do
+            echo "::add-mask::$v"
+          done
+          {
+            echo "DB_PASSWORD=$DB_PASSWORD"
+            echo "AUDIT_DB_PASSWORD=$AUDIT_DB_PASSWORD"
+            echo "JWT_SECRET=$JWT_SECRET"
+            echo "STAFF_JWT_SECRET=$STAFF_JWT_SECRET"
+            echo "STAFF_MFA_KEY=$STAFF_MFA_KEY"
+          } >> "$GITHUB_ENV"
+
+      - name: Esperar a MySQL
+        env:
+          MYSQL_PWD: ${{ env.MYSQL_ROOT_PASSWORD }}
+        run: |
+          for _ in $(seq 1 60); do
+            if mysql -h127.0.0.1 -P3306 -uroot -e "SELECT 1" >/dev/null 2>&1; then
+              echo "MySQL listo"; exit 0
+            fi
+            sleep 2
+          done
+          echo "MySQL no respondio a tiempo" >&2
+          exit 1
+
+      # Igual que server/scripts/setup-test-db.sh: schema, staff, migraciones phase* (sin
+      # phase6-hardening.sql) y audit.sql; app_user con todo sobre englishpanama y audit_writer
+      # solo con INSERT y SELECT sobre audit_log. A diferencia del script, aqui un error de SQL
+      # corta la corrida.
+      - name: Cargar esquema y migraciones
+        env:
+          MYSQL_PWD: ${{ env.MYSQL_ROOT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          m() { mysql -h127.0.0.1 -P3306 -uroot "$@"; }
+          m -e "CREATE DATABASE IF NOT EXISTS englishpanama_audit CHARACTER SET utf8mb4;
+                CREATE USER IF NOT EXISTS 'app_user'@'%' IDENTIFIED BY '${DB_PASSWORD}';
+                GRANT ALL ON englishpanama.* TO 'app_user'@'%';
+                CREATE USER IF NOT EXISTS 'audit_writer'@'%' IDENTIFIED BY '${AUDIT_DB_PASSWORD}';
+                FLUSH PRIVILEGES;"
+          m englishpanama < server/database/schema.sql
+          m englishpanama < server/database/staff.sql
+          for f in server/database/migrations/phase*.sql; do
+            name="$(basename "$f")"
+            [ "$name" = "phase6-hardening.sql" ] && continue
+            echo "- $name"
+            m englishpanama < "$f"
+          done
+          m englishpanama_audit < server/database/audit.sql
+          m -e "GRANT INSERT, SELECT ON englishpanama_audit.audit_log TO 'audit_writer'@'%'; FLUSH PRIVILEGES;"
+
+      - name: Instalar dependencias del servidor
+        working-directory: server
+        run: npm ci
+
+      - name: Pruebas del servidor
+        working-directory: server
+        run: npm test
+
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Misma version mayor que la VM-APP (Node v24).
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
 
       # El frontend se compila ACÁ, en el runner de GitHub — nunca en la VM chica.
       - name: Build client
@@ -46,11 +167,13 @@ jobs:
             client/dist/ \
             "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/var/www/englishpanama/client/"
 
+      # Las pruebas (server/tests/) no se copian a la VM; database/ si (esquema y migraciones).
       - name: Deploy server code (sin tocar .env)
         run: |
           rsync -avz --delete \
             --exclude='.env' \
             --exclude='node_modules' \
+            --exclude='/tests/' \
             -e "ssh -i ~/.ssh/deploy_key" \
             server/ \
             "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/var/www/englishpanama/api/"

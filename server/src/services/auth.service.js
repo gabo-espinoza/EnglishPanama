@@ -172,12 +172,16 @@ function validateUsername(username) {
     }
 }
 
+// Minimo de 8: con 4 caracteres una cuenta de menor se adivina con pocos intentos (D-005).
+// Solo aplica a contrasenas nuevas; el login no la exige para no bloquear cuentas existentes.
+const MIN_PASSWORD_LENGTH = 8;
+
 function validatePassword(password) {
     if (typeof password !== 'string' || !password) {
         throw new AuthError('La contrasena es obligatoria.');
     }
-    if (password.length < 4) {
-        throw new AuthError('La contrasena debe tener al menos 4 caracteres.');
+    if (password.length < MIN_PASSWORD_LENGTH) {
+        throw new AuthError(`La contrasena debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres.`);
     }
     if (password.length > MAX_PASSWORD_LENGTH) {
         throw new AuthError('La contrasena es demasiado larga.');
@@ -271,8 +275,17 @@ async function login({ username, password }) {
     const user = rows[0];
 
     // Cuenta bloqueada por intentos fallidos: se responde con el mismo mensaje
-    // generico para no revelar que existe ni por que esta bloqueada.
+    // generico para no revelar que existe ni por que esta bloqueada. Antes de responder se
+    // hace el mismo trabajo que una contrasena incorrecta (una comparacion bcrypt contra el
+    // hash de relleno, una consulta y la fila de auditoria): sin eso, responder sin bcrypt
+    // es mas rapido y el tiempo delataria que la cuenta esta bloqueada.
     if (Number(user.is_locked) === 1) {
+        await timingSafeCheckPlatform(password);
+        await pool.query('SELECT 1');
+        await audit.record({
+            actorType: user.role, actorId: user.id, actorRole: user.role,
+            action: 'user.login', target: username.slice(0, 100), outcome: 'denied'
+        });
         throw new AuthError('Usuario o contrasena incorrectos.', 401);
     }
 

@@ -6,6 +6,7 @@
 // base principal (solo para desarrollo local). En produccion (NODE_ENV=production)
 // las cuatro variables son obligatorias: sin ellas el registro no seria inmutable.
 const mysql = require('mysql2/promise');
+const { buildAuditPoolConfig } = require('./poolConfig');
 
 let pool = null;
 
@@ -30,17 +31,8 @@ function getAuditPool() {
     assertAuditConfig();
 
     if (hasSeparateAuditDb()) {
-        pool = mysql.createPool({
-            host: process.env.AUDIT_DB_HOST || process.env.DB_HOST,
-            user: process.env.AUDIT_DB_USER || process.env.DB_USER,
-            password: process.env.AUDIT_DB_PASSWORD || process.env.DB_PASSWORD, // fallback solo fuera de produccion
-            database: process.env.AUDIT_DB_NAME,
-            port: Number(process.env.DB_PORT) || 3306,
-            waitForConnections: true,
-            connectionLimit: 5,
-            queueLimit: 0,
-            timezone: 'Z'
-        });
+        // Puerto: AUDIT_DB_PORT, luego DB_PORT, luego 3306 (ver poolConfig.js).
+        pool = mysql.createPool(buildAuditPoolConfig());
     } else {
         // Reutiliza la base principal (requiere que audit_log exista ahi).
         pool = require('./db');

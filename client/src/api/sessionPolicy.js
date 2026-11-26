@@ -1,3 +1,4 @@
+import { logout } from './auth';
 import { clearSession } from './session';
 import { clearStaffSession } from './staffSession';
 
@@ -25,6 +26,15 @@ export function loginPathFor(pathname) {
 export function clearAllSessions() {
     clearSession();
     clearStaffSession();
+}
+
+// Cierre por inactividad: si todavía hay una sesión de estudiante o docente, se revoca también en
+// el servidor (POST /auth/logout, errores ignorados) antes de borrarla. La sesión de gestión solo
+// se borra del navegador: el servidor no tiene un endpoint de cierre para el personal y su token
+// vence a los 20 minutos.
+export function logoutAllSessions() {
+    logout();
+    clearAllSessions();
 }
 
 // Aviso que se muestra en el login tras un cierre automático. Vive en memoria y solo lo deja

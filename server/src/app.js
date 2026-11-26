@@ -31,11 +31,25 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
+// Ninguna respuesta de la API se guarda en cache (ni en el navegador ni en un proxy
+// compartido): llevan datos de perfil, ranking y tokens. Va antes del limitador y del
+// parser para que tambien lo reciban los 429, 400 y 413.
+app.use('/api', (req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    next();
+});
+
 // Limite de tamano del body: las respuestas de un intento son pequenas.
 app.use(express.json({ limit: '100kb' }));
 
 // Limite general de peticiones para toda la API.
 app.use('/api', apiLimiter, routes);
+
+// Ruta de la API que no existe: JSON, igual que el resto de las respuestas (el cliente
+// estatico lo sirve nginx, no esta app).
+app.use('/api', (req, res) => {
+    res.status(404).json({ error: 'Ruta no encontrada.' });
+});
 
 app.use(errorHandler);
 

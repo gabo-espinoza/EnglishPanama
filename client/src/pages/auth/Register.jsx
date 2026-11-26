@@ -57,7 +57,8 @@ export default function Register() {
                     
                     <div>
                         <label htmlFor="register-password" className="block text-sm font-medium text-gray-700 mb-1.5">Contraseña</label>
-                        <input id="register-password" type="password" className="auth-input" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required />
+                        <input id="register-password" type="password" className="auth-input" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" minLength={8} maxLength={72} autoComplete="new-password" required />
+                        <p className="text-xs text-gray-500 mt-1">Mínimo 8 caracteres.</p>
                     </div>
 
                     <div>

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { IDLE_NOTICE, IDLE_TIMEOUT_MS, clearAllSessions, isPublicPath, loginPathFor } from '../api/sessionPolicy';
+import { IDLE_NOTICE, IDLE_TIMEOUT_MS, isPublicPath, loginPathFor, logoutAllSessions } from '../api/sessionPolicy';
 
 // Eventos que cuentan como actividad de la persona.
 const ACTIVITY_EVENTS = ['pointerdown', 'pointermove', 'mousedown', 'mousemove', 'keydown', 'wheel', 'scroll', 'touchstart'];
@@ -41,7 +41,7 @@ export default function IdleLogout() {
                 return;
             }
             if (Date.now() - lastActivityRef.current < IDLE_TIMEOUT_MS) return;
-            clearAllSessions();
+            logoutAllSessions();
             lastActivityRef.current = Date.now();
             navigateRef.current(loginPathFor(path), { replace: true, state: { notice: IDLE_NOTICE } });
         };

@@ -72,6 +72,7 @@ y auditoria).
 | Robo de contrasena | **MFA con TOTP** (6 digitos, ventana de +/- 30 s), obligatorio en cada login de personal. |
 | Fuga del secreto MFA | El secreto TOTP se guarda **cifrado** (AES-256-GCM) con `STAFF_MFA_KEY`; nunca en claro. |
 | Fuerza bruta sobre una cuenta de gestion | Tras **3 intentos fallidos** la cuenta se bloquea **10 segundos** (`locked_until`). |
+| Saber por el tiempo de respuesta que una cuenta esta bloqueada | El camino de cuenta bloqueada (plataforma y gestion; en gestion tambien la cuenta suspendida) hace la misma comparacion bcrypt contra un hash de relleno que una contrasena incorrecta y responde el mismo `401` generico (`tests/locked-login-timing.test.js`). |
 | Cuenta de gestion secuestrada | `requireStaff` revalida en cada peticion: la cuenta existe, esta `active`, su `token_version` coincide y el rol/area siguen vigentes. |
 | Un rol actua fuera de su area | Cada ruta de gestion exige `area` **y** `role` (`requireStaff({ area, roles })`). Ej.: un `access_manager` no puede leer la auditoria (`403`). |
 | Un solo administrador con todo el poder | Hay **8 roles** repartidos en 7 areas; **no existe** una cuenta "superadmin". El cambio de permisos requiere solicitar + aprobar por otra cuenta. |
@@ -91,7 +92,7 @@ contrasena antes de recibir sesion; las cuentas existentes quedan en 0).
 | Uso indebido del token del cambio | `passwordToken` es un JWT con `typ: "pwd_change"` y **15 minutos** de vida. Solo abre `POST /auth/set-initial-password`; en cualquier otra ruta `requireAuth` lo rechaza (`401`), igual que al reto `mfa_pending` y al token `mfa_enroll`. Esa ruta, a su vez, rechaza cualquier otro tipo de token. |
 | Reutilizacion del token o de la temporal | El `UPDATE` que fija la contrasena solo procede si la bandera sigue en 1 y sube `token_version`: el `passwordToken` usado, y cualquier sesion abierta con la temporal, quedan revocados. Un segundo uso secuencial del mismo `passwordToken` recibe `401` (la `token_version` ya no coincide); una peticion concurrente recibe `401` o `409` (`409` solo si lee la fila antes de que el primer `UPDATE` se confirme). Un `passwordToken` usado con la bandera ya en 0 pero con la version aun vigente recibe `409 PASSWORD_ALREADY_SET`. |
 | Sesion saltandose el cambio | Mientras la bandera valga 1, `requireAuth` revalida contra la base en cada peticion y responde `403` con `code: "PASSWORD_CHANGE_REQUIRED"`. |
-| Conservar la temporal | La contrasena nueva debe ser distinta de la temporal, coincidir con su confirmacion y cumplir el largo (4 a 72 caracteres). |
+| Conservar la temporal | La contrasena nueva debe ser distinta de la temporal, coincidir con su confirmacion y cumplir el largo (8 a 72 caracteres). |
 | Trazabilidad | El cambio queda en la auditoria como `user.password.initial_set`. |
 
 El `passwordToken` viaja en el estado del router (historial del navegador, `window.history.state`), nunca en `localStorage` ni en la URL. Una recarga lo descarta (politica de sesion del cliente: ver docs/frontend.md); ademas muere a los 15 minutos o al usarse.
@@ -116,7 +117,7 @@ El reinicio no toca contrasena, MFA, sesiones ni el avance de los estudiantes.
 ## 3. Validacion de entrada
 
 - `username`: 3-30 caracteres, solo `[A-Za-z0-9_.-]`.
-- `password`: minimo 4, maximo 72 caracteres (bcrypt solo usa 72 bytes).
+- `password`: minimo 8, maximo 72 caracteres (bcrypt solo usa 72 bytes). El login no aplica el minimo, para no bloquear cuentas creadas antes de subirlo de 4 a 8.
 - `displayName` (docente): maximo 100 caracteres.
 - `moduleSlug`: solo `vocabulary`, `grammar` o `reading`.
 - `:id` de actividad: se convierte a numero; ids inexistentes responden `404`.

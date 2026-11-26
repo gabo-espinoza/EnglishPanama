@@ -1,5 +1,6 @@
 const staffAccounts = require('../services/staffAccounts.service');
 const staffAnalytics = require('../services/staffAnalytics.service');
+const { parseId } = require('../utils/ids');
 
 // GET /api/staff/accounts - lista de cuentas de gestion (sin secretos)
 async function listAccounts(req, res, next) {
@@ -38,7 +39,7 @@ async function decideChangeRequest(req, res, next) {
     try {
         const { decision } = req.body || {};
         const result = await staffAccounts.decideChangeRequest({
-            id: Number(req.params.id), decision, decidedBy: req.staff.id
+            id: parseId(req.params.id, 'El identificador de la solicitud'), decision, decidedBy: req.staff.id
         });
         res.json(result);
     } catch (err) {

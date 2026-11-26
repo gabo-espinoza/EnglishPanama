@@ -136,14 +136,10 @@ test.before(async () => {
     teacherC = await makeTeacher('c', 'DC', null);
     studentC = await makeStudent(teacherC);
 
-    const [mods] = await pool.query("SELECT id FROM modules WHERE slug = 'vocabulary'");
-    if (mods.length === 0) {
-        const [m] = await pool.query("INSERT INTO modules (slug, name) VALUES ('vocabulary', 'Vocabulary')");
-        created.moduleId = m.insertId;
-        created.moduleCreated = true;
-    } else {
-        created.moduleId = mods[0].id;
-    }
+    // INSERT IGNORE + SELECT: otros archivos de prueba crean el mismo modulo en paralelo.
+    await pool.query("INSERT IGNORE INTO modules (slug, name) VALUES ('vocabulary', 'Vocabulary')");
+    const [[mod]] = await pool.query("SELECT id FROM modules WHERE slug = 'vocabulary'");
+    created.moduleId = mod.id;
 
     uniqueA1 = `qa1-${suffix}`;
     uniqueA2 = `qa2-${suffix}`;
@@ -158,7 +154,6 @@ test.after(async () => {
         if (created.users.length) await pool.query('DELETE FROM daily_completions WHERE student_id IN (?)', [created.users]);
         if (created.challenges.length) await pool.query('DELETE FROM daily_challenges WHERE id IN (?)', [created.challenges]);
         if (created.activities.length) await pool.query('DELETE FROM activities WHERE id IN (?)', [created.activities]);
-        if (created.moduleCreated) await pool.query('DELETE FROM modules WHERE id = ?', [created.moduleId]);
         if (created.users.length) {
             await pool.query('DELETE FROM students WHERE user_id IN (?)', [created.users]);
             await pool.query('DELETE FROM teachers WHERE user_id IN (?)', [created.users]);

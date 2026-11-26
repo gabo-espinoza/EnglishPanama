@@ -149,6 +149,8 @@ CREATE TABLE daily_challenges (
     id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     question_id INT UNSIGNED NOT NULL,
     position    INT UNSIGNED NOT NULL COMMENT 'Posicion en el pool; el reto de hoy = pool[(dayOfYear + offset) % total]',
+    -- Una pregunta solo puede estar una vez en el pool (migracion phase7-daily-challenge-unique.sql).
+    UNIQUE KEY uq_daily_challenges_question (question_id),
     CONSTRAINT fk_daily_challenges_question
         FOREIGN KEY (question_id) REFERENCES questions(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

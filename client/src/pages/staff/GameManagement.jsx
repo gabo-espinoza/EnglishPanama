@@ -259,7 +259,7 @@ function AliasesSection({ token, handleAuthError }) {
     const [busyId, setBusyId] = useState(null);
     const [notice, setNotice] = useState(null);
 
-    const rows = Array.isArray(aliases.data) ? aliases.data : [];
+    const rows = useMemo(() => (Array.isArray(aliases.data) ? aliases.data : []), [aliases.data]);
     const filtered = useMemo(() => {
         const needle = filter.trim().toLowerCase();
         return needle ? rows.filter((r) => r.alias.toLowerCase().includes(needle)) : rows;
@@ -413,7 +413,7 @@ function ChallengesSection({ token, handleAuthError }) {
     const [busyKey, setBusyKey] = useState(null);
     const [notice, setNotice] = useState(null);
 
-    const poolRows = Array.isArray(pool.data) ? pool.data : [];
+    const poolRows = useMemo(() => (Array.isArray(pool.data) ? pool.data : []), [pool.data]);
     const inPool = useMemo(() => new Set(poolRows.map((c) => c.questionId)), [poolRows]);
     const results = Array.isArray(questions.data) ? questions.data : [];
 
