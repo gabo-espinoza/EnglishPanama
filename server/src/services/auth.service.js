@@ -275,8 +275,17 @@ async function login({ username, password }) {
     const user = rows[0];
 
     // Cuenta bloqueada por intentos fallidos: se responde con el mismo mensaje
-    // generico para no revelar que existe ni por que esta bloqueada.
+    // generico para no revelar que existe ni por que esta bloqueada. Antes de responder se
+    // hace el mismo trabajo que una contrasena incorrecta (una comparacion bcrypt contra el
+    // hash de relleno, una consulta y la fila de auditoria): sin eso, responder sin bcrypt
+    // es mas rapido y el tiempo delataria que la cuenta esta bloqueada.
     if (Number(user.is_locked) === 1) {
+        await timingSafeCheckPlatform(password);
+        await pool.query('SELECT 1');
+        await audit.record({
+            actorType: user.role, actorId: user.id, actorRole: user.role,
+            action: 'user.login', target: username.slice(0, 100), outcome: 'denied'
+        });
         throw new AuthError('Usuario o contrasena incorrectos.', 401);
     }
 
